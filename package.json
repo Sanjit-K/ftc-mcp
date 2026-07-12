@@ -1,0 +1,32 @@
+{
+  "name": "ftc-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI agents build, deploy, and debug FTC robot code (FtcRobotController SDK + Pedro Pathing)",
+  "type": "module",
+  "bin": {
+    "ftc-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "npm run build && node scripts/test-client.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "ftc",
+    "robotics",
+    "first-tech-challenge",
+    "pedro-pathing"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

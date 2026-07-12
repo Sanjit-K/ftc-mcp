@@ -44,7 +44,7 @@ const fakeMcpHome = join(fakeProject, "mcp-data");
 const multiDeviceFlag = join(fakeProject, "multi-device");
 writeFileSync(
   fakeAdb,
-  `#!/usr/bin/env node\nconst fs=require("node:fs"),a=process.argv.slice(2);if(a.includes("devices")){const extra=fs.existsSync(${JSON.stringify(multiDeviceFlag)})?"\\nsecond-hub\\tdevice":"";console.log("List of devices attached\\ncontrol-hub-1\\tdevice"+extra);}else if(a.includes("install")){console.log("Success");}else if(a.includes("logcat")&&a.includes("-d")){console.log("07-12 RobotCore: ready\\n07-12 CompTeleOp: test exception");}else{console.log("OK");}\n`
+  `#!/usr/bin/env node\nconst fs=require("node:fs"),a=process.argv.slice(2),has=(...x)=>x.every(v=>a.includes(v));if(a.includes("devices")){const extra=fs.existsSync(${JSON.stringify(multiDeviceFlag)})?"\\nsecond-hub\\tdevice":"";console.log("List of devices attached\\ncontrol-hub-1\\tdevice"+extra);}else if(a.includes("install")){console.log("Success");}else if(a.includes("logcat")&&a.includes("-d")){console.log("07-12 RobotCore: ready\\n07-12 CompTeleOp: test exception");}else if(has("getprop","ro.product.model")){console.log("REV Control Hub v1.0");}else if(has("getprop","ro.build.version.release")){console.log("10");}else if(has("dumpsys","battery")){console.log("AC powered: false\\nUSB powered: true\\nWireless powered: false\\nlevel: 82\\nscale: 100\\ntemperature: 315");}else if(has("dumpsys","package")){console.log("versionCode=10042 minSdk=23\\nversionName=10.2");}else if(has("df","/data")){console.log("Filesystem Size Used Avail Use% Mounted on\\n/dev/block/data 8G 3G 5G 38% /data");}else{console.log("OK");}\n`
 );
 chmodSync(fakeAdb, 0o755);
 process.env.ADB_PATH = fakeAdb;
@@ -63,7 +63,7 @@ await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 30 tools (got ${tools.tools.length})`, tools.tools.length === 30);
+  check(`lists 32 tools (got ${tools.tools.length})`, tools.tools.length === 32);
 
   // Knowledge
   let r = await call(client, "list_samples", { category: "Sensor" });
@@ -512,6 +512,17 @@ try {
   // Robot workflow tools against deterministic fake Gradle + adb.
   r = await call(client, "adb_devices", {});
   check("adb_devices runs", !r.isError && r.text.includes("control-hub-1"), r.text.slice(0, 200));
+
+  r = await call(client, "robot_status", {});
+  check(
+    "robot_status summarizes device, RC version, battery, and storage",
+    !r.isError && r.text.includes("REV Control Hub v1.0") && r.text.includes("Robot Controller: 10.2") &&
+      r.text.includes("82%") && r.text.includes("31.5°C") && r.text.includes("38% /data"),
+    r.text
+  );
+
+  r = await call(client, "restart_robot_controller", {});
+  check("restart_robot_controller restarts selected device without deploy", !r.isError && r.text.includes("control-hub-1"), r.text);
 
   r = await call(client, "clear_robot_logs", {});
   check("clear_robot_logs clears selected device", !r.isError && r.text.includes("control-hub-1"), r.text);

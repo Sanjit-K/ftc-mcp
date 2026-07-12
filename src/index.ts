@@ -16,6 +16,8 @@ import {
   buildProject,
   clearRobotLogs,
   deploy,
+  restartRobotController,
+  robotStatus,
   robotLogs,
 } from "./robot.js";
 import { TEMPLATE_DESCRIPTIONS, TEMPLATE_IDS } from "./templates.js";
@@ -582,6 +584,29 @@ server.registerTool(
     },
   },
   guard(async ({ host, port }: { host?: string; port?: number }) => adbConnect(host, port ?? 5555))
+);
+
+server.registerTool(
+  "robot_status",
+  {
+    title: "Inspect connected robot status",
+    description:
+      "Read-only connected-device snapshot: selected adb serial, model, Android version, Robot Controller app version, battery service, and data storage. " +
+      "Requires an explicit serial when multiple devices are attached.",
+    inputSchema: { serial: z.string().optional().describe("adb device serial; required when multiple devices are connected") },
+  },
+  guard(async ({ serial }: { serial?: string }) => robotStatus(serial))
+);
+
+server.registerTool(
+  "restart_robot_controller",
+  {
+    title: "Restart Robot Controller app",
+    description:
+      "Force-stop and restart the Robot Controller app without rebuilding or reinstalling the APK. Useful when the Driver Station is stale or an OpMode left the app unhealthy.",
+    inputSchema: { serial: z.string().optional().describe("adb device serial; required when multiple devices are connected") },
+  },
+  guard(async ({ serial }: { serial?: string }) => restartRobotController(serial))
 );
 
 server.registerTool(

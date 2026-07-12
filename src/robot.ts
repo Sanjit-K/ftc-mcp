@@ -169,12 +169,64 @@ export async function deploy(projectPath?: string, serial?: string): Promise<str
   }
 
   // Restart the Robot Controller app so the new code is live.
-  await adb([...serialArgs(selected), "shell", "am", "force-stop", RC_PACKAGE]);
-  await adb([...serialArgs(selected), "shell", "am", "start", "-n", RC_ACTIVITY]);
+  await restartSelected(selected);
   return (
     `Installed TeamCode-debug.apk on ${selected} and restarted the Robot Controller app.\n` +
     `New OpModes should now appear on the Driver Station. Give it ~10s to reconnect.`
   );
+}
+
+async function restartSelected(serial: string): Promise<void> {
+  const stop = await adb([...serialArgs(serial), "shell", "am", "force-stop", RC_PACKAGE]);
+  if (stop.code !== 0) throw new ToolError(`Could not stop Robot Controller on ${serial}: ${stop.stderr || stop.stdout}`);
+  const start = await adb([...serialArgs(serial), "shell", "am", "start", "-n", RC_ACTIVITY]);
+  if (start.code !== 0) throw new ToolError(`Could not start Robot Controller on ${serial}: ${start.stderr || start.stdout}`);
+}
+
+export async function restartRobotController(serial?: string): Promise<string> {
+  const selected = await requireDevice(serial);
+  await restartSelected(selected);
+  return `Restarted the Robot Controller app on ${selected}. Give the Driver Station about 10 seconds to reconnect.`;
+}
+
+function value(text: string, key: string): string | null {
+  return text.match(new RegExp(`^\\s*${key}:\\s*(.+)$`, "mi"))?.[1]?.trim() ?? null;
+}
+
+export async function robotStatus(serial?: string): Promise<string> {
+  const selected = await requireDevice(serial);
+  const command = (args: string[]) => adb([...serialArgs(selected), "shell", ...args], 15_000);
+  const [model, android, battery, app, storage] = await Promise.all([
+    command(["getprop", "ro.product.model"]),
+    command(["getprop", "ro.build.version.release"]),
+    command(["dumpsys", "battery"]),
+    command(["dumpsys", "package", RC_PACKAGE]),
+    command(["df", "-h", "/data"]),
+  ]);
+  const batteryText = battery.code === 0 ? battery.stdout : "";
+  const level = value(batteryText, "level");
+  const scale = value(batteryText, "scale");
+  const percent = level && scale && Number(scale) > 0 ? Math.round((Number(level) / Number(scale)) * 100) : null;
+  const temperature = value(batteryText, "temperature");
+  const powered = ["AC powered", "USB powered", "Wireless powered"].filter((key) => /true/i.test(value(batteryText, key) ?? ""));
+  const versionName = app.stdout.match(/versionName=([^\s]+)/)?.[1] ?? "unknown";
+  const versionCode = app.stdout.match(/versionCode=(\d+)/)?.[1];
+  const storageLine = storage.stdout.trim().split("\n").filter(Boolean).at(-1)?.trim() ?? "unavailable";
+  const warnings: string[] = [];
+  if (percent !== null && percent < 25 && powered.length === 0) warnings.push(`Battery service reports ${percent}% and no charger.`);
+  if (/\s(9[0-9]|100)%\s/.test(` ${storageLine} `)) warnings.push("Device data storage is nearly full.");
+  return [
+    "# Connected robot status",
+    `Device: ${selected}`,
+    `Model: ${model.stdout.trim() || "unknown"}`,
+    `Android: ${android.stdout.trim() || "unknown"}`,
+    `Robot Controller: ${versionName}${versionCode ? ` (code ${versionCode})` : ""}`,
+    `Battery service: ${percent !== null ? `${percent}%` : "unavailable"}${temperature ? ` · ${(Number(temperature) / 10).toFixed(1)}°C` : ""}${powered.length ? ` · ${powered.join(", ")}` : ""}`,
+    `Data storage: ${storageLine}`,
+    "",
+    ...(warnings.length ? warnings.map((warning) => `WARNING: ${warning}`) : ["No basic device-health warnings detected."]),
+    "Note: Control Hub battery-service data may not equal the robot's main 12V battery voltage; verify that separately on the Driver Station.",
+  ].join("\n");
 }
 
 /** Build first, then deploy only the APK produced by that successful build. */

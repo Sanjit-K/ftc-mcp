@@ -2,40 +2,51 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI agents (Claude Code, Claude Desktop, or any MCP client) work on **FTC robots**: search official SDK samples and Pedro Pathing docs, scaffold OpModes, build TeamCode with Gradle, deploy to a REV Control Hub over WiFi, and read robot logs — the full code → robot → debug loop.
 
-## Setup
+## Install
+
+Requirements: Node 18+, `git`, `adb` (Android platform-tools), and the Android SDK + JDK 17+ if you want to build (an Android Studio install provides both).
+
+### Claude Code (recommended)
 
 ```bash
-git clone <this repo> && cd ftcmcp
-npm install && npm run build
+# Register the server (available in every project)
+claude mcp add ftc -- npx -y ftc-mcp
 
-# Reference material (SDK samples + Pedro Pathing docs) used by the knowledge tools:
-git clone --depth 1 https://github.com/FIRST-Tech-Challenge/FtcRobotController refs/FtcRobotController
-git clone --depth 1 https://github.com/Pedro-Pathing/Docs refs/PedroDocs
+# Fetch the reference material the knowledge tools read (one time)
+npx ftc-mcp setup
 ```
 
-Requirements: Node 18+, `adb` (Android platform-tools), and the Android SDK + JDK 17+ if you want to build (an Android Studio install provides both).
+That's it — start a new session and ask Claude to "list the FTC sample OpModes" to confirm it's live.
 
-### Register with Claude Code
-
-Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatically. From another project:
-
-```bash
-claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
-```
-
-### Register with Claude Desktop
+### Claude Desktop / other MCP clients
 
 ```json
 {
   "mcpServers": {
     "ftc": {
-      "command": "node",
-      "args": ["/path/to/ftcmcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "ftc-mcp"],
       "env": { "FTC_PROJECT_DIR": "/path/to/your/FtcRobotController" }
     }
   }
 }
 ```
+
+Then run `npx ftc-mcp setup` once so the knowledge tools have their reference data.
+
+### From source (development)
+
+```bash
+git clone https://github.com/YOUR-USERNAME/ftc-mcp && cd ftc-mcp
+npm install && npm run build
+npm run setup      # clones FTC samples + Pedro docs into refs/
+```
+
+Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatically.
+
+> **Reference material:** the knowledge tools (`list_samples`, `search_docs`, …) read the official
+> FtcRobotController samples and Pedro Pathing docs. `ftc-mcp setup` clones them into `~/.ftc-mcp/refs`
+> (override with `FTC_MCP_REFS`). The project/robot tools work without this step.
 
 ## Tools
 

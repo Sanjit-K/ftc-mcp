@@ -1,12 +1,25 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Root of the ftc-mcp repo (parent of dist/). */
+/** Root of the ftc-mcp package (parent of dist/). */
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Where reference clones live (FtcRobotController + Pedro docs). */
-export const REFS_DIR = process.env.FTC_MCP_REFS ?? join(REPO_ROOT, "refs");
+/** Per-user data dir for reference clones / workspace when installed via npm. */
+export const DATA_DIR = process.env.FTC_MCP_HOME ?? join(homedir(), ".ftc-mcp");
+
+/** True when running from a source checkout that has its own refs/ (dev mode). */
+const devRefs = join(REPO_ROOT, "refs");
+const isDev = existsSync(join(devRefs, "FtcRobotController"));
+
+/**
+ * Where reference clones live. Priority: FTC_MCP_REFS env, then the source
+ * checkout's refs/ (dev), then the per-user data dir (installed — populated by
+ * `ftc-mcp setup`).
+ */
+export const REFS_DIR =
+  process.env.FTC_MCP_REFS ?? (isDev ? devRefs : join(DATA_DIR, "refs"));
 
 export const SAMPLES_DIR = join(
   REFS_DIR,
@@ -15,8 +28,14 @@ export const SAMPLES_DIR = join(
 
 export const PEDRO_DOCS_DIR = join(REFS_DIR, "PedroDocs/content/docs");
 
+/** True when the reference clones are present. */
+export function refsPresent(): boolean {
+  return existsSync(SAMPLES_DIR) && existsSync(PEDRO_DOCS_DIR);
+}
+
 /** Default workspace for projects created by create_project. */
-export const WORKSPACE_DIR = join(REPO_ROOT, "workspace");
+export const WORKSPACE_DIR =
+  process.env.FTC_MCP_WORKSPACE ?? (isDev ? join(REPO_ROOT, "workspace") : join(DATA_DIR, "workspace"));
 
 export const TEAMCODE_JAVA_SUBDIR = "TeamCode/src/main/java";
 export const DEFAULT_PACKAGE = "org.firstinspires.ftc.teamcode";

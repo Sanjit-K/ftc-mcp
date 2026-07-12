@@ -7,20 +7,42 @@
     "ftc-mcp": "dist/index.js"
   },
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
-    "test": "npm run build && node scripts/test-client.mjs"
+    "setup": "node dist/index.js setup",
+    "test": "npm run build && node scripts/test-client.mjs",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "ftc",
     "robotics",
     "first-tech-challenge",
-    "pedro-pathing"
+    "pedro-pathing",
+    "ftclib",
+    "android"
   ],
+  "author": "Sanjit K.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR-USERNAME/ftc-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR-USERNAME/ftc-mcp/issues"
+  },
+  "homepage": "https://github.com/YOUR-USERNAME/ftc-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.1"

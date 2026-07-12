@@ -26,9 +26,35 @@ import {
   listSubsystems,
 } from "./subsystems.js";
 import { createTeleOp } from "./teleop.js";
-import { ToolError } from "./paths.js";
+import { ToolError, REFS_DIR, refsPresent } from "./paths.js";
+import { runSetup } from "./setup.js";
 
-const server = new McpServer({ name: "ftc-mcp", version: "0.1.0" });
+const VERSION = "0.1.0";
+
+// CLI subcommands (run before starting the server).
+const cliArg = process.argv[2];
+if (cliArg === "setup") {
+  await runSetup();
+  process.exit(0);
+}
+if (cliArg === "--version" || cliArg === "-v") {
+  console.log(VERSION);
+  process.exit(0);
+}
+if (cliArg === "--help" || cliArg === "-h") {
+  console.log(
+    `ftc-mcp ${VERSION} — MCP server for AI-driven FTC robot development\n\n` +
+      `Usage:\n` +
+      `  ftc-mcp            Start the MCP server on stdio (used by MCP clients)\n` +
+      `  ftc-mcp setup      Download reference material (FTC samples + Pedro docs)\n` +
+      `  ftc-mcp --version  Print version\n\n` +
+      `Add to Claude Code:  claude mcp add ftc -- npx -y ftc-mcp\n` +
+      `Then run once:        npx ftc-mcp setup`
+  );
+  process.exit(0);
+}
+
+const server = new McpServer({ name: "ftc-mcp", version: VERSION });
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
@@ -489,3 +515,10 @@ server.registerTool(
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error("ftc-mcp server running on stdio");
+if (!refsPresent()) {
+  console.error(
+    `[ftc-mcp] Reference material not found in ${REFS_DIR}. ` +
+      `The knowledge tools (list_samples, search_docs, get_sample, get_doc) need it — ` +
+      `run \`npx ftc-mcp setup\` once. Project/robot tools work without it.`
+  );
+}

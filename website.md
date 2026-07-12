@@ -93,7 +93,7 @@ report issues. Credit FTC SDK and Pedro Pathing.
   - Signature mismatch on deploy (`adb uninstall …`).
   - Panels `@Configurable` needs `install_pedro`.
 - **Config** — env vars (`FTC_PROJECT_DIR`, `FTC_MCP_REFS`, `ADB_PATH`).
-- **Robot + internet** — macOS and Windows dual-network setup using Control Hub Wi-Fi plus phone tethering, with route diagnostics and the two MCP networking tools.
+- **Automatic Wi-Fi deployment** — build while online, switch macOS or Windows to a saved Control Hub network, deploy locally, restore the original Wi-Fi, and read the saved result after the AI reconnects.
 
 ---
 

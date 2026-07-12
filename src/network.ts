@@ -1,124 +1,218 @@
-import { networkInterfaces, platform as hostPlatform } from "node:os";
-import { createConnection } from "node:net";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { run } from "./exec.js";
+import { buildProject, type BuildOptions } from "./robot.js";
+import { DATA_DIR, resolveProject, ToolError } from "./paths.js";
 
-export type SetupPlatform = "macos" | "windows";
-export type InternetMethod = "usb-tether" | "bluetooth-tether" | "wifi-client-bridge";
+type WifiPlatform = "macos" | "windows";
+type JobStage = "queued" | "switching-to-robot" | "deploying" | "returning-home" | "succeeded" | "failed";
 
-function detectedPlatform(): SetupPlatform {
-  return hostPlatform() === "win32" ? "windows" : "macos";
+interface WifiDeployJob {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  stage: JobStage;
+  platform: WifiPlatform;
+  robotSsid: string;
+  homeSsid: string;
+  robotHost: string;
+  robotPort: number;
+  apkPath: string;
+  wifiDevice?: string;
+  delaySeconds: number;
+  messages: string[];
 }
 
-export function dualNetworkGuide(opts: {
-  platform?: SetupPlatform;
-  method?: InternetMethod;
+const JOBS_DIR = join(DATA_DIR, "wifi-deploy-jobs");
+const RC_PACKAGE = "com.qualcomm.ftcrobotcontroller";
+const RC_ACTIVITY = `${RC_PACKAGE}/org.firstinspires.ftc.robotcontroller.internal.FtcRobotControllerActivity`;
+
+function platformName(): WifiPlatform {
+  if (process.platform === "darwin") return "macos";
+  if (process.platform === "win32") return "windows";
+  throw new ToolError("Automatic Wi-Fi deployment currently supports macOS and Windows only.");
+}
+
+function jobPath(id: string): string {
+  if (!/^[a-zA-Z0-9-]+$/.test(id)) throw new ToolError("Invalid Wi-Fi deployment job ID.");
+  return join(JOBS_DIR, `${id}.json`);
+}
+
+function writeJob(job: WifiDeployJob): void {
+  mkdirSync(JOBS_DIR, { recursive: true });
+  writeFileSync(jobPath(job.id), `${JSON.stringify(job, null, 2)}\n`, { mode: 0o600 });
+  try { chmodSync(jobPath(job.id), 0o600); } catch { /* Windows permissions are profile-managed. */ }
+}
+
+function readJob(id: string): WifiDeployJob {
+  const path = jobPath(id);
+  if (!existsSync(path)) throw new ToolError(`Wi-Fi deployment job ${id} was not found.`);
+  return JSON.parse(readFileSync(path, "utf8")) as WifiDeployJob;
+}
+
+function updateJob(job: WifiDeployJob, stage: JobStage, message: string): void {
+  job.stage = stage;
+  job.updatedAt = new Date().toISOString();
+  job.messages.push(message);
+  writeJob(job);
+}
+
+async function detectWifi(platform: WifiPlatform): Promise<{ ssid: string; device?: string }> {
+  if (platform === "macos") {
+    const ports = await run("networksetup", ["-listallhardwareports"], { timeoutMs: 10_000 });
+    const device = ports.stdout.match(/Hardware Port: (?:Wi-Fi|AirPort)\r?\nDevice: ([^\r\n]+)/)?.[1]?.trim();
+    if (!device) throw new ToolError("Could not find the macOS Wi-Fi device with networksetup.");
+    const current = await run("networksetup", ["-getairportnetwork", device], { timeoutMs: 10_000 });
+    const ssid = current.stdout.match(/Current Wi-Fi Network:\s*(.+)/)?.[1]?.trim();
+    if (!ssid) throw new ToolError("The Mac is not currently connected to a Wi-Fi network. Connect to home Wi-Fi first.");
+    return { ssid, device };
+  }
+  const current = await run("netsh", ["wlan", "show", "interfaces"], { timeoutMs: 10_000 });
+  const ssid = current.stdout.match(/^\s*SSID\s*:\s*(.+)$/mi)?.[1]?.trim();
+  if (!ssid) throw new ToolError("Windows is not currently connected to Wi-Fi. Connect to home Wi-Fi first.");
+  return { ssid };
+}
+
+async function switchWifi(job: WifiDeployJob, ssid: string): Promise<void> {
+  const result = job.platform === "macos"
+    ? await run("networksetup", ["-setairportnetwork", job.wifiDevice ?? "en0", ssid], { timeoutMs: 30_000 })
+    : await run("netsh", ["wlan", "connect", `name=${ssid}`, `ssid=${ssid}`], { timeoutMs: 30_000 });
+  if (result.code !== 0) {
+    throw new Error(`Could not connect to saved Wi-Fi network "${ssid}": ${(result.stderr || result.stdout).trim()}`);
+  }
+}
+
+function adbExecutable(): string {
+  if (process.env.ADB_PATH && existsSync(process.env.ADB_PATH)) return process.env.ADB_PATH;
+  const macDefault = join(homedir(), "Library/Android/sdk/platform-tools/adb");
+  return existsSync(macDefault) ? macDefault : "adb";
+}
+
+async function waitForAdb(target: string): Promise<void> {
+  const deadline = Date.now() + 45_000;
+  let last = "";
+  while (Date.now() < deadline) {
+    const result = await run(adbExecutable(), ["connect", target], { timeoutMs: 8_000 });
+    last = `${result.stdout}\n${result.stderr}`.trim();
+    if (result.code === 0 && /connected to|already connected to/i.test(last)) return;
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  throw new Error(`ADB could not reach ${target}: ${last || "connection timed out"}`);
+}
+
+async function installApk(job: WifiDeployJob): Promise<void> {
+  const target = `${job.robotHost}:${job.robotPort}`;
+  await waitForAdb(target);
+  const install = await run(adbExecutable(), ["-s", target, "install", "-r", job.apkPath], { timeoutMs: 120_000 });
+  const output = `${install.stdout}\n${install.stderr}`.trim();
+  if (install.code !== 0 || !/Success/i.test(output)) throw new Error(`adb install failed: ${output}`);
+  const stop = await run(adbExecutable(), ["-s", target, "shell", "am", "force-stop", RC_PACKAGE], { timeoutMs: 20_000 });
+  if (stop.code !== 0) throw new Error(`APK installed, but the Robot Controller app could not be stopped: ${stop.stderr || stop.stdout}`);
+  const start = await run(adbExecutable(), ["-s", target, "shell", "am", "start", "-n", RC_ACTIVITY], { timeoutMs: 20_000 });
+  if (start.code !== 0) throw new Error(`APK installed, but the Robot Controller app could not be restarted: ${start.stderr || start.stdout}`);
+}
+
+export async function runWifiDeployWorker(jobId: string): Promise<void> {
+  const job = readJob(jobId);
+  let deploymentError: string | null = null;
+  await new Promise((resolve) => setTimeout(resolve, job.delaySeconds * 1_000));
+  try {
+    updateJob(job, "switching-to-robot", `Switching Wi-Fi from ${job.homeSsid} to ${job.robotSsid}.`);
+    await switchWifi(job, job.robotSsid);
+    updateJob(job, "deploying", `Connected to ${job.robotSsid}; waiting for ADB at ${job.robotHost}:${job.robotPort}.`);
+    await installApk(job);
+    job.messages.push("Installed TeamCode-debug.apk and restarted the Robot Controller app.");
+  } catch (error) {
+    deploymentError = error instanceof Error ? error.message : String(error);
+  } finally {
+    try {
+      updateJob(job, "returning-home", `Returning Wi-Fi to ${job.homeSsid}.`);
+      await switchWifi(job, job.homeSsid);
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    } catch (error) {
+      const returnError = error instanceof Error ? error.message : String(error);
+      deploymentError = deploymentError ? `${deploymentError}; also failed to restore Wi-Fi: ${returnError}` : `Deployment completed, but Wi-Fi restoration failed: ${returnError}`;
+    }
+  }
+  if (deploymentError) updateJob(job, "failed", deploymentError);
+  else updateJob(job, "succeeded", `Deployment complete; Wi-Fi restored to ${job.homeSsid}.`);
+}
+
+export async function startWifiDeploy(opts: {
+  robotSsid: string;
+  homeSsid?: string;
+  projectPath?: string;
   robotHost?: string;
   robotPort?: number;
-}): string {
-  const platform = opts.platform ?? detectedPlatform();
-  const method = opts.method ?? "usb-tether";
-  const host = opts.robotHost ?? "192.168.43.1";
-  const port = opts.robotPort ?? 5555;
-  const methodSteps: Record<InternetMethod, string[]> = {
-    "usb-tether": platform === "windows"
-      ? [
-          "Connect the phone to the PC by USB and enable USB tethering / Personal Hotspot.",
-          "For iPhone on Windows, install the current Apple Devices app or iTunes so the USB network adapter is available.",
-          "Keep the PC's Wi-Fi connected to the Control Hub network.",
-        ]
-      : [
-          "Connect the phone to the Mac by USB, enable Personal Hotspot, and approve Trust/Allow prompts.",
-          "Keep the Mac's Wi-Fi connected to the Control Hub network.",
-        ],
-    "bluetooth-tether": [
-      "Pair the phone and computer over Bluetooth, enable the phone's Bluetooth hotspot/tethering, and join its Bluetooth PAN.",
-      "Keep the computer's Wi-Fi connected to the Control Hub network.",
-      "Bluetooth is cable-free but slower and less reliable than USB tethering.",
-    ],
-    "wifi-client-bridge": [
-      "Configure a travel router or extender in client mode so it joins the home Wi-Fi.",
-      "Connect its Ethernet port to the computer with a short cable/adapter.",
-      "Keep the computer's Wi-Fi connected to the Control Hub network.",
-    ],
+  delaySeconds?: number;
+  clean?: boolean;
+  timeoutSeconds?: number;
+  stacktrace?: boolean;
+  dryRun?: boolean;
+  platform?: WifiPlatform;
+}): Promise<string> {
+  const platform = opts.platform ?? platformName();
+  if (!opts.robotSsid.trim()) throw new ToolError("robotSsid is required.");
+  const project = resolveProject(opts.projectPath);
+  const apkPath = join(project, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk");
+  if (opts.dryRun) {
+    return [
+      "Wi-Fi deployment preview — no build, network switch, or deployment performed.",
+      `Platform: ${platform}`,
+      `Build: ${project}`,
+      `Robot Wi-Fi: ${opts.robotSsid}`,
+      `Robot ADB: ${opts.robotHost ?? "192.168.43.1"}:${opts.robotPort ?? 5555}`,
+      `APK: ${apkPath}`,
+      `Return Wi-Fi: ${opts.homeSsid ?? "detect current network when started"}`,
+      "Requirement: connect to the Control Hub once manually so its Wi-Fi profile is saved.",
+    ].join("\n");
+  }
+  if ((platform === "macos") !== (process.platform === "darwin") || (platform === "windows") !== (process.platform === "win32")) {
+    throw new ToolError(`Cannot run a ${platform} Wi-Fi switch on ${process.platform}.`);
+  }
+  const current = await detectWifi(platform);
+  const homeSsid = opts.homeSsid?.trim() || current.ssid;
+  if (homeSsid === opts.robotSsid.trim()) throw new ToolError("The computer is already on the robot Wi-Fi. Connect to the internet Wi-Fi before starting this job.");
+  const buildOptions: BuildOptions = { clean: opts.clean, timeoutSeconds: opts.timeoutSeconds, stacktrace: opts.stacktrace };
+  const build = await buildProject(project, buildOptions);
+  const id = `wifi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const now = new Date().toISOString();
+  const job: WifiDeployJob = {
+    id, createdAt: now, updatedAt: now, stage: "queued", platform,
+    robotSsid: opts.robotSsid.trim(), homeSsid, robotHost: opts.robotHost ?? "192.168.43.1",
+    robotPort: opts.robotPort ?? 5555, apkPath, wifiDevice: current.device,
+    delaySeconds: Math.max(5, Math.min(opts.delaySeconds ?? 10, 30)),
+    messages: ["Build completed while internet was available. Wi-Fi switch queued."],
   };
-  const checks = platform === "windows"
-    ? [
-        `Test-NetConnection ${host} -Port ${port}`,
-        "Test-NetConnection api.openai.com -Port 443",
-        "Get-NetIPInterface -AddressFamily IPv4 | Sort-Object InterfaceMetric",
-      ]
-    : [
-        "route -n get default",
-        `route -n get ${host}`,
-        `nc -vz ${host} ${port}`,
-        "nc -vz api.openai.com 443",
-      ];
+  writeJob(job);
+  const workerEntry = fileURLToPath(new URL("./index.js", import.meta.url));
+  const child = spawn(process.execPath, [workerEntry, "__wifi-deploy-worker", id], { detached: true, stdio: "ignore", env: process.env });
+  child.unref();
   return [
-    `# Dual-network setup (${platform}, ${method})`,
-    "Goal: internet uses the phone/home bridge while the directly connected robot subnet uses Wi-Fi.",
+    build,
     "",
-    ...methodSteps[method].map((step, index) => `${index + 1}. ${step}`),
-    `${methodSteps[method].length + 1}. Verify both paths with the commands below.`,
-    `${methodSteps[method].length + 2}. Connect ADB with: adb connect ${host}:${port}`,
-    "",
-    "Checks:",
-    ...checks.map((command) => `- ${command}`),
-    "",
-    `ftc-mcp: call network_diagnostics, then adb_connect with host ${host} and port ${port}.`,
-    "If internet fails while robot ADB works, lower the route/interface metric for the tether or Ethernet interface; do not bridge or modify the Control Hub network.",
-    "Development only: disconnect programming computers and auxiliary wireless equipment before a match, following the current FTC competition manual.",
+    `Wi-Fi deployment job started: ${id}`,
+    `The computer will switch to ${job.robotSsid} in ${job.delaySeconds} seconds, deploy locally, and return to ${job.homeSsid}.`,
+    `The AI connection may pause briefly. After internet returns, call wifi_deploy_status with jobId "${id}".`,
   ].join("\n");
 }
 
-function tcpProbe(host: string, port: number, timeoutMs: number): Promise<{ ok: boolean; elapsedMs: number; error?: string }> {
-  const started = Date.now();
-  return new Promise((resolve) => {
-    const socket = createConnection({ host, port });
-    let settled = false;
-    const finish = (ok: boolean, error?: string) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve({ ok, elapsedMs: Date.now() - started, error });
-    };
-    socket.setTimeout(timeoutMs, () => finish(false, "timed out"));
-    socket.once("connect", () => finish(true));
-    socket.once("error", (error) => finish(false, error.message));
-  });
-}
-
-export async function networkDiagnostics(opts: {
-  robotHost?: string;
-  robotPort?: number;
-  checkInternet?: boolean;
-  internetHost?: string;
-  timeoutMs?: number;
-}): Promise<string> {
-  const robotHost = opts.robotHost ?? "192.168.43.1";
-  const robotPort = opts.robotPort ?? 5555;
-  const internetHost = opts.internetHost ?? "api.openai.com";
-  const timeoutMs = Math.max(250, Math.min(opts.timeoutMs ?? 3_000, 10_000));
-  const [robot, internet] = await Promise.all([
-    tcpProbe(robotHost, robotPort, timeoutMs),
-    opts.checkInternet === false ? Promise.resolve(null) : tcpProbe(internetHost, 443, timeoutMs),
-  ]);
-  const interfaces = Object.entries(networkInterfaces()).flatMap(([name, addresses]) =>
-    (addresses ?? [])
-      .filter((address) => address.family === "IPv4" && !address.internal)
-      .map((address) => `${name}: ${address.address}/${address.netmask}`)
-  );
-  const simultaneous = robot.ok && (internet?.ok ?? true);
+export function wifiDeployStatus(jobId?: string): string {
+  mkdirSync(JOBS_DIR, { recursive: true });
+  const id = jobId ?? readdirSync(JOBS_DIR)
+    .filter((name) => name.endsWith(".json"))
+    .sort((a, b) => statSync(join(JOBS_DIR, b)).mtimeMs - statSync(join(JOBS_DIR, a)).mtimeMs)[0]?.replace(/\.json$/, "");
+  if (!id) throw new ToolError("No Wi-Fi deployment jobs found. Start one with wifi_deploy_start.");
+  const job = readJob(id);
   return [
-    `Dual-network diagnostic: ${simultaneous ? "PASS" : "ATTENTION NEEDED"}`,
-    `Robot ADB ${robotHost}:${robotPort}: ${robot.ok ? `reachable (${robot.elapsedMs}ms)` : `unreachable — ${robot.error}`}`,
-    ...(internet ? [`Internet ${internetHost}:443: ${internet.ok ? `reachable (${internet.elapsedMs}ms)` : `unreachable — ${internet.error}`}`] : []),
+    `Wi-Fi deployment ${job.id}: ${job.stage.toUpperCase()}`,
+    `Robot: ${job.robotSsid} (${job.robotHost}:${job.robotPort})`,
+    `Return network: ${job.homeSsid}`,
+    `Updated: ${job.updatedAt}`,
     "",
-    "Active IPv4 interfaces:",
-    ...(interfaces.length ? interfaces.map((line) => `- ${line}`) : ["- none detected"]),
-    "",
-    simultaneous
-      ? `Both paths are available. Run adb_connect with host ${robotHost} and port ${robotPort}, then build_and_deploy.`
-      : !robot.ok
-        ? "Robot path is unavailable. Join the Control Hub Wi-Fi and verify its Program & Manage page before retrying."
-        : "Robot ADB works but internet does not. Enable USB/Bluetooth tethering or a Wi-Fi client bridge and make that interface the preferred default route.",
+    ...job.messages.map((message) => `- ${message}`),
   ].join("\n");
 }

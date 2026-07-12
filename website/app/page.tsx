@@ -3,7 +3,7 @@ import Link from "next/link";
 const features = [
   { id: "01", label: "Knowledge", title: "Real APIs. Real examples.", body: "Searches official FTC samples and Pedro Pathing docs, so your AI cites working code instead of inventing methods.", tag: "search_knowledge" },
   { id: "02", label: "Scaffold", title: "Clean code, wired up.", body: "Creates one class per mechanism, injects dependencies, and keeps driver bindings in a separate, editable file.", tag: "create_subsystem" },
-  { id: "03", label: "Build + deploy", title: "Close the loop.", body: "Runs Gradle, extracts useful compiler errors, installs over Wi-Fi, and reads logcat back from your Control Hub.", tag: "build_project" },
+  { id: "03", label: "Build + deploy", title: "Close the loop.", body: "Builds online, switches to the saved Control Hub Wi-Fi, deploys locally, then restores your internet network.", tag: "wifi_deploy_start" },
   { id: "04", label: "Robot memory", title: "Next session starts ahead.", body: "Maintains a living docs/ knowledge base of your robot, hardware names, and public subsystem commands.", tag: "document_robot" },
 ];
 
@@ -19,6 +19,7 @@ const faqs = [
   ["Does it require Pedro Pathing?", "No. Pedro is optional, and ftc-mcp includes a tool to install it when your robot needs it."],
   ["Will it overwrite my code?", "Not silently. File-generating tools refuse to overwrite existing work unless you explicitly allow it."],
   ["Does the robot need to be connected?", "Only for deployment and device logs. Scaffolding, docs, and local builds work without a robot."],
+  ["Do I need a phone tether?", "No. ftc-mcp can build online, switch to a saved Control Hub Wi-Fi network for deployment, and switch back automatically."],
   ["Where does my code go?", "The MCP server runs locally. Your AI client’s normal privacy and data settings still apply."],
 ];
 

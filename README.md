@@ -60,40 +60,27 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 > FtcRobotController samples and Pedro Pathing docs. `ftc-mcp setup` clones them into `~/.ftc-mcp/refs`
 > (override with `FTC_MCP_REFS`). The project/robot tools work without this step.
 
-## Keep internet and robot Wi-Fi connected
+## Deploy by switching Wi-Fi automatically
 
-The Control Hub access point normally has no internet. The cheapest field-friendly setup is to keep the computer’s **Wi-Fi on the Control Hub** and give it internet through a **phone tether** on a second network interface. The operating system routes `192.168.43.1` over Wi-Fi and normal internet traffic over the tether, so Codex or Claude stays online while `adb` reaches the robot.
+No phone tether or extra router is required. ftc-mcp can build while the computer is on internet Wi-Fi, return a job ID to Codex or Claude, then run the network-sensitive part as a local background job:
 
-Call `dual_network_guide` for platform-specific setup or `network_diagnostics` to test both paths. This is for development and pits only; disconnect programming computers and auxiliary wireless equipment before a match and follow the current FTC competition manual.
+1. Switch to the saved Control Hub Wi-Fi.
+2. Connect to `192.168.43.1:5555` with ADB.
+3. Install the freshly built APK and restart Robot Controller.
+4. Restore the original internet Wi-Fi even when deployment fails.
+5. Let the AI read the saved result after it reconnects.
 
-### macOS
+Before the first automatic deployment, manually join the Control Hub once so macOS or Windows saves its SSID and password. Return to internet Wi-Fi, then ask the AI to call:
 
-1. Join the Control Hub Wi-Fi on the Mac.
-2. Connect a phone by USB, enable Personal Hotspot, and approve Trust/Allow prompts. Bluetooth tethering also works, but is slower and less reliable.
-3. Verify that the Control Hub and internet use different routes:
-
-```bash
-route -n get 192.168.43.1
-route -n get default
-nc -vz 192.168.43.1 5555
-nc -vz api.openai.com 443
-adb connect 192.168.43.1:5555
+```text
+wifi_deploy_start(robotSsid: "YOUR-CONTROL-HUB-SSID")
 ```
 
-### Windows
+The tool builds before disconnecting and waits 10 seconds before changing networks, giving the MCP response time to reach the AI. The AI connection may pause for roughly 20–60 seconds. Once it returns, call `wifi_deploy_status` with the returned job ID—or omit the ID to read the latest job.
 
-1. Join the Control Hub Wi-Fi on the PC.
-2. Connect a phone by USB and enable USB tethering or Personal Hotspot. For an iPhone, install Apple Devices or iTunes so Windows has the Apple USB network adapter.
-3. Check both routes in PowerShell:
+Use `dryRun: true` to preview every path and network involved without building, switching Wi-Fi, or deploying. Both macOS and Windows are supported. On Windows, the Control Hub must appear as a saved `netsh wlan` profile. On macOS, it must be a remembered Wi-Fi network available to `networksetup`.
 
-```powershell
-Test-NetConnection 192.168.43.1 -Port 5555
-Test-NetConnection api.openai.com -Port 443
-Get-NetIPInterface -AddressFamily IPv4 | Sort-Object InterfaceMetric
-adb connect 192.168.43.1:5555
-```
-
-If robot ADB works but the AI loses internet, make the tether adapter the preferred default route by lowering its interface metric. Do not bridge or modify the Control Hub network. If a USB phone tether is still too clunky, use Bluetooth tethering or a small travel router in Wi-Fi-client mode connected to the laptop by a short Ethernet adapter.
+This is for development and pits only. Disconnect programming computers before a match and follow the current FTC competition manual.
 
 ## Tools
 
@@ -146,8 +133,8 @@ Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restor
 
 | Tool | What it does |
 |---|---|
-| `dual_network_guide` | Generate exact macOS or Windows steps for keeping internet and Control Hub Wi-Fi active at the same time using USB tethering, Bluetooth tethering, or a travel-router client bridge |
-| `network_diagnostics` | Probe the robot ADB port and internet path concurrently, list active IPv4 interfaces, and recommend the next routing fix |
+| `wifi_deploy_start` | Build while online, then launch a local macOS/Windows job that switches to saved Control Hub Wi-Fi, deploys through ADB, restarts Robot Controller, and restores the original Wi-Fi |
+| `wifi_deploy_status` | Read the latest or selected background deployment state and its complete switch/deploy/recovery timeline after internet reconnects |
 | `adb_devices` / `adb_connect` | Find / connect to the robot (Control Hub default: `192.168.43.1:5555`) |
 | `robot_status` | Read device identity, Android/RC app versions, battery service, and storage health |
 | `restart_robot_controller` | Restart the RC app without rebuilding or reinstalling code |
@@ -159,11 +146,11 @@ Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restor
 
 ## Typical agent session
 
-1. `adb_connect` → laptop already on the robot's WiFi joins the Control Hub
-2. `search_docs("mecanum field centric")` / `get_sample(...)` → find reference code
-3. `create_opmode(className: "CompTeleOp", template: "mecanum-teleop")`
-4. `build` → fix any compiler errors → `deploy`
-5. Driver tests the OpMode → `robot_logs(filter: "CompTeleOp")` to debug
+1. `search_docs("mecanum field centric")` / `get_sample(...)` → find reference code
+2. `create_opmode(className: "CompTeleOp", template: "mecanum-teleop")`
+3. `wifi_deploy_start(robotSsid: "YOUR-CONTROL-HUB-SSID")` → build online, switch locally, deploy, and switch back
+4. Fix any compiler errors returned before a background Wi-Fi switch begins
+5. Driver tests the OpMode → reconnect with `adb_connect` when needed, then use `robot_logs(filter: "CompTeleOp")`
 
 ## Subsystem workflow
 

@@ -36,12 +36,16 @@ import { referenceStatus, runSetup, updateReferences } from "./setup.js";
 import { inspectProject } from "./diagnostics.js";
 import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
-import { dualNetworkGuide, networkDiagnostics } from "./network.js";
+import { runWifiDeployWorker, startWifiDeploy, wifiDeployStatus } from "./network.js";
 
 const VERSION = "0.2.0";
 
 // CLI subcommands (run before starting the server).
 const cliArg = process.argv[2];
+if (cliArg === "__wifi-deploy-worker") {
+  await runWifiDeployWorker(process.argv[3]);
+  process.exit(0);
+}
 if (cliArg === "setup") {
   await runSetup({ update: process.argv.includes("--update") });
   process.exit(0);
@@ -564,36 +568,39 @@ server.registerTool(
 // ---------- Robot ----------
 
 server.registerTool(
-  "dual_network_guide",
+  "wifi_deploy_start",
   {
-    title: "Set up internet plus robot Wi-Fi",
+    title: "Build, switch Wi-Fi, and deploy",
     description:
-      "Return Mac or Windows instructions for keeping cloud-AI internet access while Wi-Fi stays connected to the Control Hub. Covers USB phone tethering, Bluetooth tethering, and Wi-Fi client bridges with platform-specific route checks.",
+      "Build TeamCode while internet is available, start a local background job that switches macOS or Windows to a saved Control Hub Wi-Fi profile, connects ADB, installs the APK, restarts Robot Controller, and restores the original Wi-Fi even after failure. Returns before the network switch so the AI can receive the job ID.",
     inputSchema: {
-      platform: z.enum(["macos", "windows"]).optional().describe("Defaults to the MCP host operating system"),
-      method: z.enum(["usb-tether", "bluetooth-tether", "wifi-client-bridge"]).optional().describe("Internet connection method; default USB tether"),
-      robotHost: z.string().optional().describe("Control Hub/tunnel host; default 192.168.43.1"),
+      robotSsid: z.string().min(1).describe("Saved Control Hub Wi-Fi network name. Connect to it manually once before using this tool"),
+      homeSsid: z.string().optional().describe("Saved internet Wi-Fi network to restore; defaults to the currently connected SSID"),
+      projectPath: projectPathArg,
+      robotHost: z.string().optional().describe("Control Hub host; default 192.168.43.1"),
       robotPort: z.number().int().min(1).max(65535).optional().describe("ADB TCP port; default 5555"),
+      delaySeconds: z.number().int().min(5).max(30).optional().describe("Seconds before Wi-Fi switches, allowing the tool response to reach the AI; default 10"),
+      clean: z.boolean().optional().describe("Run :TeamCode:clean before building"),
+      timeoutSeconds: z.number().int().min(30).max(1800).optional().describe("Gradle build timeout; default 600 seconds"),
+      stacktrace: z.boolean().optional().describe("Include Gradle stacktrace details on build failure"),
+      dryRun: z.boolean().optional().describe("Preview the build, Wi-Fi, ADB, APK, and return-network plan without changing anything"),
+      platform: z.enum(["macos", "windows"]).optional().describe("Preview override for dryRun; real jobs must match the host OS"),
     },
   },
-  guard(async (args: Parameters<typeof dualNetworkGuide>[0]) => dualNetworkGuide(args))
+  guard(async (args: Parameters<typeof startWifiDeploy>[0]) => startWifiDeploy(args))
 );
 
 server.registerTool(
-  "network_diagnostics",
+  "wifi_deploy_status",
   {
-    title: "Verify internet and robot routes",
+    title: "Read Wi-Fi deployment result",
     description:
-      "Actively test whether the MCP host can reach the Control Hub ADB port and an internet HTTPS endpoint at the same time, list active IPv4 interfaces, and recommend the next networking fix.",
+      "Read the latest or specified background Wi-Fi deployment job after the computer reconnects to internet. Reports queued, switching, deploying, returning, succeeded, or failed state plus the complete local build/deploy/recovery timeline.",
     inputSchema: {
-      robotHost: z.string().optional().describe("Control Hub/tunnel host; default 192.168.43.1"),
-      robotPort: z.number().int().min(1).max(65535).optional().describe("ADB TCP port; default 5555"),
-      checkInternet: z.boolean().optional().describe("Also probe an internet HTTPS endpoint; default true"),
-      internetHost: z.string().optional().describe("Internet host to probe on port 443; default api.openai.com"),
-      timeoutMs: z.number().int().min(250).max(10000).optional().describe("Per-probe timeout; default 3000ms"),
+      jobId: z.string().optional().describe("Job ID returned by wifi_deploy_start; omit to read the most recent job"),
     },
   },
-  guard(async (args: Parameters<typeof networkDiagnostics>[0]) => networkDiagnostics(args))
+  guard(async ({ jobId }: { jobId?: string }) => wifiDeployStatus(jobId))
 );
 
 server.registerTool(

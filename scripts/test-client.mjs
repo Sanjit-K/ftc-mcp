@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { createServer } from "node:net";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -48,7 +47,7 @@ const fakeMcpHome = join(fakeProject, "mcp-data");
 const multiDeviceFlag = join(fakeProject, "multi-device");
 writeFileSync(
   fakeAdb,
-  `#!/usr/bin/env node\nconst fs=require("node:fs"),a=process.argv.slice(2),has=(...x)=>x.every(v=>a.includes(v));if(a.includes("devices")){const extra=fs.existsSync(${JSON.stringify(multiDeviceFlag)})?"\\nsecond-hub\\tdevice":"";console.log("List of devices attached\\ncontrol-hub-1\\tdevice"+extra);}else if(a.includes("install")){console.log("Success");}else if(a.includes("logcat")&&a.includes("-d")){console.log("07-12 RobotCore: ready\\n07-12 CompTeleOp: test exception");}else if(has("getprop","ro.product.model")){console.log("REV Control Hub v1.0");}else if(has("getprop","ro.build.version.release")){console.log("10");}else if(has("dumpsys","battery")){console.log("AC powered: false\\nUSB powered: true\\nWireless powered: false\\nlevel: 82\\nscale: 100\\ntemperature: 315");}else if(has("dumpsys","package")){console.log("versionCode=10042 minSdk=23\\nversionName=10.2");}else if(has("df","/data")){console.log("Filesystem Size Used Avail Use% Mounted on\\n/dev/block/data 8G 3G 5G 38% /data");}else{console.log("OK");}\n`
+  `#!/usr/bin/env node\nconst fs=require("node:fs"),a=process.argv.slice(2),has=(...x)=>x.every(v=>a.includes(v));if(a.includes("connect")){console.log("connected to 192.168.43.1:5555");}else if(a.includes("devices")){const extra=fs.existsSync(${JSON.stringify(multiDeviceFlag)})?"\\nsecond-hub\\tdevice":"";console.log("List of devices attached\\ncontrol-hub-1\\tdevice"+extra);}else if(a.includes("install")){console.log("Success");}else if(a.includes("logcat")&&a.includes("-d")){console.log("07-12 RobotCore: ready\\n07-12 CompTeleOp: test exception");}else if(has("getprop","ro.product.model")){console.log("REV Control Hub v1.0");}else if(has("getprop","ro.build.version.release")){console.log("10");}else if(has("dumpsys","battery")){console.log("AC powered: false\\nUSB powered: true\\nWireless powered: false\\nlevel: 82\\nscale: 100\\ntemperature: 315");}else if(has("dumpsys","package")){console.log("versionCode=10042 minSdk=23\\nversionName=10.2");}else if(has("df","/data")){console.log("Filesystem Size Used Avail Use% Mounted on\\n/dev/block/data 8G 3G 5G 38% /data");}else{console.log("OK");}\n`
 );
 chmodSync(fakeAdb, 0o755);
 process.env.ADB_PATH = fakeAdb;
@@ -63,27 +62,17 @@ const transport = new StdioClientTransport({
   env: { ...process.env, ADB_PATH: fakeAdb, FTC_MCP_HOME: fakeMcpHome },
 });
 const client = new Client({ name: "test-client", version: "0.0.1" });
-const probeServer = createServer((socket) => socket.end());
-await new Promise((resolve, reject) => {
-  probeServer.once("error", reject);
-  probeServer.listen(0, "127.0.0.1", resolve);
-});
-const probeAddress = probeServer.address();
-const probePort = typeof probeAddress === "object" && probeAddress ? probeAddress.port : 0;
 await client.connect(transport);
 
 try {
   const tools = await client.listTools();
   check(`lists 34 tools (got ${tools.tools.length})`, tools.tools.length === 34);
 
-  let r = await call(client, "dual_network_guide", { platform: "macos", method: "usb-tether" });
-  check("dual_network_guide gives macOS routes and ADB target", !r.isError && r.text.includes("route -n get") && r.text.includes("adb connect 192.168.43.1:5555"), r.text);
+  let r = await call(client, "wifi_deploy_start", { robotSsid: "FTC-TEST", projectPath: fakeProject, platform: "windows", dryRun: true });
+  check("wifi_deploy_start previews Windows switch without building or disconnecting", !r.isError && r.text.includes("no build, network switch, or deployment") && r.text.includes("FTC-TEST") && r.text.includes("192.168.43.1:5555"), r.text);
 
-  r = await call(client, "dual_network_guide", { platform: "windows", method: "usb-tether" });
-  check("dual_network_guide gives Windows route checks", !r.isError && r.text.includes("Test-NetConnection") && r.text.includes("Apple Devices"), r.text);
-
-  r = await call(client, "network_diagnostics", { robotHost: "127.0.0.1", robotPort: probePort, checkInternet: false, timeoutMs: 1000 });
-  check("network_diagnostics recognizes a reachable robot path", !r.isError && r.text.includes("PASS") && r.text.includes("reachable"), r.text);
+  r = await call(client, "wifi_deploy_status", {});
+  check("wifi_deploy_status explains when no job exists", r.isError && r.text.includes("No Wi-Fi deployment jobs found"), r.text);
 
   // Knowledge
   r = await call(client, "list_samples", { category: "Sensor" });
@@ -612,9 +601,33 @@ try {
   r = await call(client, "clear_robot_logs", { serial: "second-hub" });
   check("explicit serial selects one of multiple devices", !r.isError && r.text.includes("second-hub"), r.text);
   rmSync(multiDeviceFlag, { force: true });
+
+  // Exercise the detached worker logic with fake Wi-Fi and adb commands.
+  const fakeNetworksetup = join(fakeProject, "networksetup");
+  writeFileSync(fakeNetworksetup, "#!/bin/sh\nexit 0\n");
+  chmodSync(fakeNetworksetup, 0o755);
+  const wifiJobId = "wifi-worker-test";
+  const wifiJobsDir = join(fakeMcpHome, "wifi-deploy-jobs");
+  mkdirSync(wifiJobsDir, { recursive: true });
+  const wifiJobPath = join(wifiJobsDir, `${wifiJobId}.json`);
+  const wifiNow = new Date().toISOString();
+  writeFileSync(wifiJobPath, JSON.stringify({
+    id: wifiJobId, createdAt: wifiNow, updatedAt: wifiNow, stage: "queued", platform: "macos",
+    robotSsid: "FTC-TEST", homeSsid: "HOME-TEST", robotHost: "192.168.43.1", robotPort: 5555,
+    apkPath: join(fakeProject, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk"), wifiDevice: "en0",
+    delaySeconds: 0, messages: ["queued for test"],
+  }));
+  execFileSync(process.execPath, [join(ROOT, "dist/index.js"), "__wifi-deploy-worker", wifiJobId], {
+    env: { ...process.env, PATH: `${fakeProject}:${process.env.PATH}`, ADB_PATH: fakeAdb, FTC_MCP_HOME: fakeMcpHome },
+  });
+  const wifiResult = JSON.parse(readFileSync(wifiJobPath, "utf8"));
+  check(
+    "Wi-Fi deploy worker installs locally and restores the original network",
+    wifiResult.stage === "succeeded" && wifiResult.messages.some((message) => message.includes("Returning Wi-Fi to HOME-TEST")),
+    JSON.stringify(wifiResult, null, 2)
+  );
 } finally {
   await client.close();
-  await new Promise((resolve) => probeServer.close(resolve));
   rmSync(fakeProject, { recursive: true, force: true });
 }
 

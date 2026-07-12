@@ -31,6 +31,23 @@ function serialArgs(serial?: string): string[] {
   return serial ? ["-s", serial] : [];
 }
 
+/** Fail fast (instead of letting adb block on "waiting for device"). */
+async function requireDevice(serial?: string): Promise<void> {
+  const res = await adb(["devices"]);
+  const attached = res.stdout
+    .split("\n")
+    .slice(1)
+    .filter((l) => /\tdevice$/.test(l.trim().replace(/\s+/, "\t")));
+  if (attached.length === 0) {
+    throw new ToolError(
+      "No device connected. Run adb_connect (robot WiFi) or plug in USB, then check adb_devices."
+    );
+  }
+  if (serial && !attached.some((l) => l.startsWith(serial))) {
+    throw new ToolError(`Device ${serial} not found. Connected:\n${attached.join("\n")}`);
+  }
+}
+
 export async function adbDevices(): Promise<string> {
   const res = await adb(["devices", "-l"]);
   const out = res.stdout.trim();
@@ -129,6 +146,7 @@ export async function deploy(projectPath?: string, serial?: string): Promise<str
   if (!existsSync(apk)) {
     throw new ToolError(`APK not found at ${apk}. Run the build tool first.`);
   }
+  await requireDevice(serial);
 
   const install = await adb([...serialArgs(serial), "install", "-r", apk], 120_000);
   const installOut = (install.stdout + install.stderr).trim();
@@ -156,6 +174,7 @@ export async function robotLogs(opts: {
   filter?: string;
   errorsOnly?: boolean;
 }): Promise<string> {
+  await requireDevice(opts.serial);
   const lines = Math.min(opts.lines ?? 300, 2000);
   const args = [...serialArgs(opts.serial), "logcat", "-d", "-t", String(lines)];
   if (opts.errorsOnly) args.push("*:E");

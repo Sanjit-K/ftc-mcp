@@ -92,5 +92,6 @@ claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
 
 ```bash
 npm test            # build + MCP smoke test (no robot needed)
-node scripts/test-build.mjs [projectPath]   # real Gradle build through the build tool
+node scripts/test-build.mjs [projectPath]         # real Gradle build through the build tool
+node scripts/test-pedro-build.mjs [projectPath]   # install_pedro + all templates + full build
 ```

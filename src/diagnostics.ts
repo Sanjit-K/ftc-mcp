@@ -20,7 +20,7 @@ function countFiles(dir: string, suffix: string): number {
 function candidateProject(projectPath?: string): string {
   return resolve(
     projectPath ??
-      process.env.FTC_PROJECT_DIR ??
+      process.env.FTC_TOOLCHAIN_PROJECT_DIR ??
       join(WORKSPACE_DIR, "FtcRobotController")
   );
 }
@@ -54,13 +54,13 @@ function formatAge(ms: number): string {
 export async function inspectProject(projectPath?: string): Promise<string> {
   const project = candidateProject(projectPath);
   const hasProject = existsSync(join(project, "TeamCode"));
-  const lines = ["# ftc-mcp project check", ""];
+  const lines = ["# ftc-toolchain project check", ""];
   const actions: string[] = [];
 
   lines.push(`Project: ${project}`);
   if (!hasProject) {
     lines.push("Status: NOT FOUND (missing TeamCode module)");
-    actions.push("Pass projectPath, set FTC_PROJECT_DIR, or run create_project.");
+    actions.push("Pass projectPath, set FTC_TOOLCHAIN_PROJECT_DIR, or run create_project.");
   } else {
     const javaRoot = join(project, TEAMCODE_JAVA_SUBDIR);
     const opmodes = listOpModes(project);
@@ -111,7 +111,7 @@ export async function inspectProject(projectPath?: string): Promise<string> {
   lines.push(`Reference library: ${refsReady ? "ready" : `MISSING — ${REFS_DIR}`}`);
   lines.push(`Android SDK: ${sdk ?? "NOT FOUND"}`);
   lines.push(`Node: ${process.version}`);
-  if (!refsReady) actions.push("Run npx ftc-mcp setup to enable FTC sample and Pedro documentation tools.");
+  if (!refsReady) actions.push("Run npx ftc-toolchain setup to enable FTC sample and Pedro documentation tools.");
   if (!sdk) actions.push("Install Android Studio or set ANDROID_HOME before building.");
 
   lines.push("", "## Next actions");

@@ -4,7 +4,7 @@ import { PEDRO_DOCS_DIR, SAMPLES_DIR, ToolError, requireDir } from "./paths.js";
 
 const CLONE_HINT =
   "Run: git clone --depth 1 https://github.com/FIRST-Tech-Challenge/FtcRobotController refs/FtcRobotController && " +
-  "git clone --depth 1 https://github.com/Pedro-Pathing/Docs refs/PedroDocs (from the ftc-mcp repo root).";
+  "git clone --depth 1 https://github.com/Pedro-Pathing/Docs refs/PedroDocs (from the ftc-toolchain repo root).";
 
 export interface SampleInfo {
   name: string;

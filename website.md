@@ -1,10 +1,10 @@
-# ftc-mcp — Website Plan
+# FTC Toolchain — Website Plan
 
-What the ftc-mcp website should contain, page by page. Audience: **FTC students and
+What the ftc-toolchain website should contain, page by page. Audience: **FTC students and
 mentors** (grades 7–12, plus coaches) who already use Android Studio and want an AI
 that can actually build, wire, and deploy robot code — not just chat about it.
 
-Goal of the site: a visitor understands what ftc-mcp is in 10 seconds, sees it work in
+Goal of the site: a visitor understands what ftc-toolchain is in 10 seconds, sees it work in
 under a minute, and can copy two commands to install it. Secondary goal: be the docs.
 
 ---
@@ -24,7 +24,7 @@ Optional later: `/blog` (build logs, release notes), `/showcase` (teams using it
 
 ### 1. Hero
 - **Headline:** "Your AI can build the robot now." (or: "AI that writes, wires, and deploys FTC code.")
-- **Subhead:** "ftc-mcp gives Codex, Claude, and other MCP clients the tools to scaffold subsystems, wire TeleOp, build with Gradle, and deploy to your Control Hub — the whole loop, from prompt to robot."
+- **Subhead:** "ftc-toolchain gives Codex, Claude, and other MCP clients the tools to scaffold subsystems, wire TeleOp, build with Gradle, and deploy to your Control Hub — the whole loop, from prompt to robot."
 - **Primary CTA:** `Get started` → jumps to install. **Secondary:** `View on GitHub`.
 - **Hero visual:** a short looping terminal/asciinema clip: a person types *"make an intake subsystem with one motor, spinIn and spinOut, plus a bench test"* and files appear + a green `BUILD SUCCESSFUL`. Motion sells this better than a screenshot.
 - Trust line under the CTA: "Works with the official FtcRobotController SDK and Pedro Pathing. Free & open source (MIT)."
@@ -33,7 +33,7 @@ Optional later: `/blog` (build logs, release notes), `/showcase` (teams using it
 Three lines, FTC-specific:
 - "Every season starts with the same boilerplate: hardware maps, drive code, config names that must match the Driver Station."
 - "AI chatbots can *describe* the code — but you still copy-paste, fix imports, and chase build errors."
-- "ftc-mcp closes the loop: the AI runs the tools, builds the code, and tells you what broke."
+- "ftc-toolchain closes the loop: the AI runs the tools, builds the code, and tells you what broke."
 
 ### 3. What it does (3–4 feature cards)
 Group the 20 tools into the buckets and show them as cards with an icon each:
@@ -49,7 +49,7 @@ the tools; the student stays in control and reviews the diffs.
 
 ### 5. Live example / proof (the strongest section)
 Use the **reconstruction case study** — it's the credibility anchor:
-- "We took a real competition robot (8 subsystems, dual TeleOps, a color-sorting spindexer with custom PID), turned it into a plain-English prompt, and rebuilt it through ftc-mcp into an empty folder."
+- "We took a real competition robot (8 subsystems, dual TeleOps, a color-sorting spindexer with custom PID), turned it into a plain-English prompt, and rebuilt it through ftc-toolchain into an empty folder."
 - Result stat tiles: **8/8 subsystems reproduced · 76/76 public methods · compiles to a real APK.**
 - A before/after: original inline controls vs the generated separate `Controls.java`.
 - Keep it honest: note the AI writes the logic; the tools guarantee the structure, wiring, and that it builds.
@@ -57,8 +57,8 @@ Use the **reconstruction case study** — it's the credibility anchor:
 ### 6. Install (make it copy-paste obvious)
 Two commands, big monospace block with a copy button:
 ```
-codex mcp add ftc -- npx -y ftc-mcp
-npx ftc-mcp setup
+codex mcp add ftc-toolchain -- npx -y ftc-toolchain
+npx ftc-toolchain setup
 ```
 Tabs for **Codex** / **Claude Code** / **Other MCP clients**. Requirements line:
 Node 18+, Android Studio (for building), adb (for deploying).
@@ -92,7 +92,7 @@ report issues. Credit FTC SDK and Pedro Pathing.
   - `docs/` invisible in Android Studio (switch to "Project" view).
   - Signature mismatch on deploy (`adb uninstall …`).
   - Panels `@Configurable` needs `install_pedro`.
-- **Config** — env vars (`FTC_PROJECT_DIR`, `FTC_MCP_REFS`, `ADB_PATH`).
+- **Config** — env vars (`FTC_TOOLCHAIN_PROJECT_DIR`, `FTC_TOOLCHAIN_REFS`, `FTC_TOOLCHAIN_HOME`, `ADB_PATH`).
 - **Deployment choices** — use direct USB-C for a connected ADB device, or build while online and automatically switch macOS or Windows to a saved Control Hub network before restoring internet Wi-Fi.
 
 ---
@@ -106,7 +106,7 @@ report issues. Credit FTC SDK and Pedro Pathing.
 
 ## Build notes (suggested, not required)
 - Static site (Astro / Next static export / plain HTML). No backend needed.
-- Host on GitHub Pages or Vercel; point a domain like `ftcmcp.dev` at it.
+- Host on GitHub Pages or Vercel; point a domain like `ftctoolchain.dev` at it.
 - Docs can be MDX so the tool reference and guides live next to the code and version with it.
 - Add Open Graph tags + a social preview image (the hero clip's poster frame) so shared links look good in team Discords/Slacks — that's how this spreads between teams.
 

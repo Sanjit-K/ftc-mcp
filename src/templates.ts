@@ -383,7 +383,7 @@ export function renderTemplate(id: TemplateId, args: TemplateArgs): string {
       source = pedroTeleop(args);
       break;
   }
-  return `// @ftc-mcp generated: opmode — scaffolded; team edits expected\n${source}`;
+  return `// @ftc-toolchain generated: opmode — scaffolded; team edits expected\n${source}`;
 }
 
 /**
@@ -392,7 +392,7 @@ export function renderTemplate(id: TemplateId, args: TemplateArgs): string {
  * pathing/tuning docs. Defaults assume mecanum drive + goBILDA Pinpoint.
  */
 export function pedroConstants(packageName: string): string {
-  return `// @ftc-mcp generated: pedro-constants — scaffolded; tune every value\npackage ${packageName};
+  return `// @ftc-toolchain generated: pedro-constants — scaffolded; tune every value\npackage ${packageName};
 
 import com.pedropathing.control.FilteredPIDFCoefficients;
 import com.pedropathing.control.PIDFCoefficients;

@@ -1,4 +1,4 @@
-# ftc-mcp
+# FTC Toolchain
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI agents (Codex, Claude Code, Claude Desktop, or any MCP client) work on **FTC robots**: search official SDK samples and Pedro Pathing docs, scaffold OpModes, build TeamCode with Gradle, deploy to a REV Control Hub over WiFi, and read robot logs — the full code → robot → debug loop.
 
@@ -10,10 +10,10 @@ Requirements: Node 18+, `git`, `adb` (Android platform-tools), and the Android S
 
 ```bash
 # Register the server (available in every project)
-codex mcp add ftc -- npx -y ftc-mcp
+codex mcp add ftc-toolchain -- npx -y ftc-toolchain
 
 # Fetch the reference material the knowledge tools read (one time)
-npx ftc-mcp setup
+npx ftc-toolchain setup
 ```
 
 Start a new Codex task and ask it to “list the FTC sample OpModes” to confirm the server is live.
@@ -22,10 +22,10 @@ Start a new Codex task and ask it to “list the FTC sample OpModes” to confir
 
 ```bash
 # Register the server (available in every project)
-claude mcp add ftc -- npx -y ftc-mcp
+claude mcp add ftc-toolchain -- npx -y ftc-toolchain
 
 # Fetch the reference material the knowledge tools read (one time)
-npx ftc-mcp setup
+npx ftc-toolchain setup
 ```
 
 Start a new Claude session and ask it to “list the FTC sample OpModes” to confirm it is live.
@@ -35,21 +35,21 @@ Start a new Claude session and ask it to “list the FTC sample OpModes” to co
 ```json
 {
   "mcpServers": {
-    "ftc": {
+    "ftc-toolchain": {
       "command": "npx",
-      "args": ["-y", "ftc-mcp"],
-      "env": { "FTC_PROJECT_DIR": "/path/to/your/FtcRobotController" }
+      "args": ["-y", "ftc-toolchain"],
+      "env": { "FTC_TOOLCHAIN_PROJECT_DIR": "/path/to/your/FtcRobotController" }
     }
   }
 }
 ```
 
-Then run `npx ftc-mcp setup` once so the knowledge tools have their reference data.
+Then run `npx ftc-toolchain setup` once so the knowledge tools have their reference data.
 
 ### From source (development)
 
 ```bash
-git clone https://github.com/Sanjit-K/ftc-mcp && cd ftc-mcp
+git clone https://github.com/Sanjit-K/ftc-toolchain && cd ftc-toolchain
 npm install && npm run build
 npm run setup      # clones FTC samples + Pedro docs into refs/
 ```
@@ -57,8 +57,8 @@ npm run setup      # clones FTC samples + Pedro docs into refs/
 Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatically.
 
 > **Reference material:** the knowledge tools (`list_samples`, `search_docs`, …) read the official
-> FtcRobotController samples and Pedro Pathing docs. `ftc-mcp setup` clones them into `~/.ftc-mcp/refs`
-> (override with `FTC_MCP_REFS`). The project/robot tools work without this step.
+> FtcRobotController samples and Pedro Pathing docs. `ftc-toolchain setup` clones them into `~/.ftc-toolchain/refs`
+> (override with `FTC_TOOLCHAIN_REFS`). The project/robot tools work without this step.
 
 ## Choose how to deploy
 
@@ -72,11 +72,11 @@ Use this when the programming computer is near the robot. Connect the Control Hu
 deploy_robot(connection: "usb")
 ```
 
-ftc-mcp builds a fresh APK, installs it on the attached ADB device, and restarts Robot Controller. If more than one Android device is attached, pass the `serial` shown by `adb_devices`. Internet stays connected throughout the deployment.
+ftc-toolchain builds a fresh APK, installs it on the attached ADB device, and restarts Robot Controller. If more than one Android device is attached, pass the `serial` shown by `adb_devices`. Internet stays connected throughout the deployment.
 
 ### Option 2: automatic Wi-Fi switching
 
-No phone tether or extra router is required. ftc-mcp can build while the computer is on internet Wi-Fi, return a job ID to Codex or Claude, then run the network-sensitive part as a local background job:
+No phone tether or extra router is required. ftc-toolchain can build while the computer is on internet Wi-Fi, return a job ID to Codex or Claude, then run the network-sensitive part as a local background job:
 
 1. Switch to the saved Control Hub Wi-Fi.
 2. Connect to `192.168.43.1:5555` with ADB.
@@ -119,7 +119,7 @@ Start a new session with `inspect_project`. It reports which FTC project is sele
 | `check_project_hygiene` | Read-only pre-competition audit for duplicate names, orphaned files, broken docs, stale builds, TODOs, and Git state |
 | `create_project` | Clone a fresh FtcRobotController SDK project |
 | `list_opmodes` | List `@TeleOp`/`@Autonomous` classes in TeamCode |
-| `list_generated_files` | Inventory files scaffolded by ftc-mcp, grouped by artifact type |
+| `list_generated_files` | Inventory files scaffolded by ftc-toolchain, grouped by artifact type |
 | `list_backups` | Browse project-scoped recovery snapshots made before overwrites |
 | `restore_backup` | Preview or restore selected backup files; confirmed restores back up current versions first |
 | `create_opmode` | Scaffold an OpMode: `linear-teleop`, `mecanum-teleop`, `linear-auto`, `pedro-auto`, `pedro-teleop` |
@@ -129,7 +129,7 @@ Start a new session with `inspect_project`. It reports which FTC project is sele
 
 All code generators support `dryRun: true`. This performs the same validation and returns the exact target paths and generated source without touching the filesystem. Use it to review a proposed OpMode, subsystem, calculation helper, or TeleOp before creation or overwrite.
 
-When `overwrite: true` replaces an existing generated target, ftc-mcp first copies the old version to `~/.ftc-mcp/backups` (or `$FTC_MCP_HOME/backups`). The backup stays outside the robot repository. `list_generated_files` inventories marked scaffolds, but the marker only records origin—team edits are expected and must be preserved.
+When `overwrite: true` replaces an existing generated target, ftc-toolchain first copies the old version to `~/.ftc-toolchain/backups` (or `$FTC_TOOLCHAIN_HOME/backups`). The backup stays outside the robot repository. `list_generated_files` inventories marked scaffolds, but the marker only records origin—team edits are expected and must be preserved.
 
 Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restore is preview-only unless `confirm: true`; before a confirmed rollback, the files currently in the project are backed up again, so recovery is reversible.
 
@@ -196,8 +196,10 @@ Describe how driving should feel and what should be automated; `create_teleop` w
 
 | Env var | Meaning |
 |---|---|
-| `FTC_PROJECT_DIR` | Default FTC SDK project used by project/robot tools |
-| `FTC_MCP_REFS` | Location of the reference clones (default: `./refs`) |
+| `FTC_TOOLCHAIN_PROJECT_DIR` | Default FTC SDK project used by project/robot tools |
+| `FTC_TOOLCHAIN_PROJECT_DIR` | Default FtcRobotController project location |
+| `FTC_TOOLCHAIN_REFS` | Location of the reference clones (default: `./refs`) |
+| `FTC_TOOLCHAIN_HOME` | Toolchain cache, backups, jobs, and workspace root (default: `~/.ftc-toolchain`) |
 | `ADB_PATH` | Explicit path to `adb` if not on PATH |
 
 ## Notes
@@ -210,8 +212,8 @@ Describe how driving should feel and what should be automated; `create_teleop` w
 
 ```bash
 npm test            # build + MCP smoke test (no robot needed)
-npx ftc-mcp doctor [projectPath] # diagnose local project/tooling readiness
-npx ftc-mcp setup --update       # refresh cached FTC samples and Pedro docs
+npx ftc-toolchain doctor [projectPath] # diagnose local project/tooling readiness
+npx ftc-toolchain setup --update       # refresh cached FTC samples and Pedro docs
 node scripts/test-build.mjs [projectPath]           # real Gradle build through the build tool
 node scripts/test-pedro-build.mjs [projectPath]     # install_pedro + all templates + full build
 node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + a full TeleOp + build

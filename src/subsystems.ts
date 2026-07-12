@@ -317,7 +317,7 @@ function regenerateIndex(project: string): void {
   });
   const body =
     `# Robot Subsystems\n\n` +
-    `Living knowledge base of this robot's subsystems, maintained by the team via ftc-mcp.\n` +
+    `Living knowledge base of this robot's subsystems, maintained by the team via ftc-toolchain.\n` +
     `Read these before writing OpModes so you know each subsystem's hardware, config names, and quirks.\n\n` +
     (rows.length
       ? `| Subsystem | Summary |\n| --- | --- |\n${rows.join("\n")}\n`

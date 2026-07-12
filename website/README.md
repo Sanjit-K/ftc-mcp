@@ -1,8 +1,7 @@
-# vinext-starter
+# FTC Toolchain website
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+The marketing and documentation site for FTC Toolchain. It builds with vinext
+for Sites and exports statically for GitHub Pages.
 
 ## Prerequisites
 

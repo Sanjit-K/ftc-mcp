@@ -3,23 +3,23 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Root of the ftc-mcp package (parent of dist/). */
+/** Root of the ftc-toolchain package (parent of dist/). */
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Per-user data dir for reference clones / workspace when installed via npm. */
-export const DATA_DIR = process.env.FTC_MCP_HOME ?? join(homedir(), ".ftc-mcp");
+export const DATA_DIR = process.env.FTC_TOOLCHAIN_HOME ?? join(homedir(), ".ftc-toolchain");
 
 /** True when running from a source checkout that has its own refs/ (dev mode). */
 const devRefs = join(REPO_ROOT, "refs");
 const isDev = existsSync(join(devRefs, "FtcRobotController"));
 
 /**
- * Where reference clones live. Priority: FTC_MCP_REFS env, then the source
+ * Where reference clones live. Priority: FTC_TOOLCHAIN_REFS env, then the source
  * checkout's refs/ (dev), then the per-user data dir (installed — populated by
- * `ftc-mcp setup`).
+ * `ftc-toolchain setup`).
  */
 export const REFS_DIR =
-  process.env.FTC_MCP_REFS ?? (isDev ? devRefs : join(DATA_DIR, "refs"));
+  process.env.FTC_TOOLCHAIN_REFS ?? (isDev ? devRefs : join(DATA_DIR, "refs"));
 
 export const SAMPLES_DIR = join(
   REFS_DIR,
@@ -35,7 +35,7 @@ export function refsPresent(): boolean {
 
 /** Default workspace for projects created by create_project. */
 export const WORKSPACE_DIR =
-  process.env.FTC_MCP_WORKSPACE ?? (isDev ? join(REPO_ROOT, "workspace") : join(DATA_DIR, "workspace"));
+  process.env.FTC_TOOLCHAIN_WORKSPACE ?? (isDev ? join(REPO_ROOT, "workspace") : join(DATA_DIR, "workspace"));
 
 export const TEAMCODE_JAVA_SUBDIR = "TeamCode/src/main/java";
 export const DEFAULT_PACKAGE = "org.firstinspires.ftc.teamcode";
@@ -51,18 +51,18 @@ export function requireDir(dir: string, hint: string): string {
 
 /**
  * Resolve the FTC SDK project to operate on: explicit arg, then
- * FTC_PROJECT_DIR env var, then the default workspace clone.
+ * FTC_TOOLCHAIN_PROJECT_DIR env var, then the default workspace clone.
  */
 export function resolveProject(projectPath?: string): string {
   const candidate =
     projectPath ??
-    process.env.FTC_PROJECT_DIR ??
+    process.env.FTC_TOOLCHAIN_PROJECT_DIR ??
     join(WORKSPACE_DIR, "FtcRobotController");
   const dir = resolve(candidate);
   if (!existsSync(join(dir, "TeamCode"))) {
     throw new ToolError(
       `No FTC SDK project at ${dir} (missing TeamCode module).\n` +
-        `Pass projectPath, set FTC_PROJECT_DIR, or run the create_project tool to clone a fresh FtcRobotController.`
+        `Pass projectPath, set FTC_TOOLCHAIN_PROJECT_DIR, or run the create_project tool to clone a fresh FtcRobotController.`
     );
   }
   return dir;

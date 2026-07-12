@@ -25,7 +25,7 @@ async function call(client, name, args = {}) {
 }
 
 // Fake FTC project: just the files our tools touch.
-const fakeProject = join(tmpdir(), `ftc-mcp-test-${Date.now()}`);
+const fakeProject = join(tmpdir(), `ftc-toolchain-test-${Date.now()}`);
 mkdirSync(join(fakeProject, "TeamCode/src/main/java"), { recursive: true });
 cpSync(
   join(ROOT, "refs/FtcRobotController/build.dependencies.gradle"),
@@ -59,7 +59,7 @@ cpSync(
 const transport = new StdioClientTransport({
   command: "node",
   args: [join(ROOT, "dist/index.js")],
-  env: { ...process.env, ADB_PATH: fakeAdb, FTC_MCP_HOME: fakeMcpHome },
+  env: { ...process.env, ADB_PATH: fakeAdb, FTC_TOOLCHAIN_HOME: fakeMcpHome },
 });
 const client = new Client({ name: "test-client", version: "0.0.1" });
 await client.connect(transport);
@@ -140,7 +140,7 @@ try {
   check(
     "opmode content correct",
     existsSync(omPath) &&
-      readFileSync(omPath, "utf8").includes("@ftc-mcp generated: opmode") &&
+      readFileSync(omPath, "utf8").includes("@ftc-toolchain generated: opmode") &&
       readFileSync(omPath, "utf8").includes('@TeleOp(name = "Test Drive"') &&
       readFileSync(omPath, "utf8").includes("package org.firstinspires.ftc.teamcode;")
   );
@@ -590,9 +590,9 @@ try {
     opModeName: "TestPedroAuto",
   });
   const orphanControls = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/OrphanControls.java");
-  writeFileSync(orphanControls, "// @ftc-mcp generated: controls — scaffolded; driver edits expected\nclass OrphanControls {}\n");
+  writeFileSync(orphanControls, "// @ftc-toolchain generated: controls — scaffolded; driver edits expected\nclass OrphanControls {}\n");
   const brokenDoc = join(fakeProject, "docs/subsystems/Broken.md");
-  writeFileSync(brokenDoc, "<!-- @ftc-mcp generated: subsystem-doc -->\n# Broken\n\n- **Source:** `TeamCode/src/main/java/missing/Broken.java`\n");
+  writeFileSync(brokenDoc, "<!-- @ftc-toolchain generated: subsystem-doc -->\n# Broken\n\n- **Source:** `TeamCode/src/main/java/missing/Broken.java`\n");
   const future = new Date(Date.now() + 10_000);
   utimesSync(orphanControls, future, future);
   r = await call(client, "check_project_hygiene", { projectPath: fakeProject });
@@ -631,7 +631,7 @@ try {
     delaySeconds: 0, messages: ["queued for test"],
   }));
   execFileSync(process.execPath, [join(ROOT, "dist/index.js"), "__wifi-deploy-worker", wifiJobId], {
-    env: { ...process.env, PATH: `${fakeProject}:${process.env.PATH}`, ADB_PATH: fakeAdb, FTC_MCP_HOME: fakeMcpHome },
+    env: { ...process.env, PATH: `${fakeProject}:${process.env.PATH}`, ADB_PATH: fakeAdb, FTC_TOOLCHAIN_HOME: fakeMcpHome },
   });
   const wifiResult = JSON.parse(readFileSync(wifiJobPath, "utf8"));
   check(
@@ -645,15 +645,15 @@ try {
 }
 
 // Reference updates must refuse dirty checkouts before attempting any network operation.
-const fakeRefs = join(tmpdir(), `ftc-mcp-refs-test-${Date.now()}`);
+const fakeRefs = join(tmpdir(), `ftc-toolchain-refs-test-${Date.now()}`);
 for (const name of ["FtcRobotController", "PedroDocs"]) {
   const repo = join(fakeRefs, name);
   mkdirSync(repo, { recursive: true });
   execFileSync("git", ["init", "-q"], { cwd: repo });
   writeFileSync(join(repo, "team-notes.txt"), "do not overwrite\n");
 }
-const oldRefs = process.env.FTC_MCP_REFS;
-process.env.FTC_MCP_REFS = fakeRefs;
+const oldRefs = process.env.FTC_TOOLCHAIN_REFS;
+process.env.FTC_TOOLCHAIN_REFS = fakeRefs;
 try {
   const { updateReferences } = await import(`${pathToFileURL(join(ROOT, "dist/setup.js")).href}?dirty-test=${Date.now()}`);
   let message = "";
@@ -664,8 +664,8 @@ try {
   }
   check("update_references refuses dirty local checkouts", message.includes("local changes"), message);
 } finally {
-  if (oldRefs === undefined) delete process.env.FTC_MCP_REFS;
-  else process.env.FTC_MCP_REFS = oldRefs;
+  if (oldRefs === undefined) delete process.env.FTC_TOOLCHAIN_REFS;
+  else process.env.FTC_TOOLCHAIN_REFS = oldRefs;
   rmSync(fakeRefs, { recursive: true, force: true });
 }
 

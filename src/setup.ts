@@ -40,7 +40,7 @@ async function clone(url: string, dest: string, label: string, update = false): 
  */
 export async function runSetup(opts: { update?: boolean } = {}): Promise<void> {
   mkdirSync(REFS_DIR, { recursive: true });
-  console.error(`Setting up ftc-mcp reference material in ${REFS_DIR}`);
+  console.error(`Setting up ftc-toolchain reference material in ${REFS_DIR}`);
   await clone(SDK_REPO, join(REFS_DIR, "FtcRobotController"), "FTC SDK samples", opts.update);
   await clone(DOCS_REPO, join(REFS_DIR, "PedroDocs"), "Pedro Pathing docs", opts.update);
   console.error(
@@ -75,7 +75,7 @@ export async function referenceStatus(): Promise<string> {
     `Content: ${samples} FTC samples · ${countDocs(PEDRO_DOCS_DIR)} Pedro docs`,
     await repoStatus(sdkRepo, "FTC SDK"),
     await repoStatus(docsRepo, "Pedro docs"),
-    "Run update_references (or `npx ftc-mcp setup --update`) to fast-forward clean reference checkouts.",
+    "Run update_references (or `npx ftc-toolchain setup --update`) to fast-forward clean reference checkouts.",
   ].join("\n");
 }
 

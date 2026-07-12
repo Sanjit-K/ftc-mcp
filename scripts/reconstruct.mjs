@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Drives the ftc-mcp server (dist/index.js) to reconstruct the Voyager robot
+// Drives the ftc-toolchain server (dist/index.js) to reconstruct the Voyager robot
 // from robot-prompt.md into a fresh project folder. This is the "agent" turning
 // the prompt into MCP tool calls; method bodies are filled in afterward.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";

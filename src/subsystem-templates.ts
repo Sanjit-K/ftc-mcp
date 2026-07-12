@@ -232,7 +232,7 @@ export function generateSubsystemClass(spec: SubsystemSpec): string {
   const ctorParams = ["HardwareMap hardwareMap", ...depParams].join(", ");
 
   return (
-    `// @ftc-mcp generated: subsystem — scaffolded; team edits expected\n` +
+    `// @ftc-toolchain generated: subsystem — scaffolded; team edits expected\n` +
     `package ${spec.packageName};\n\n` +
     `${importLines}\n\n` +
     classDoc +
@@ -304,7 +304,7 @@ export function generateTestOpMode(spec: SubsystemSpec, group: string): string {
     .join("\n");
 
   return (
-    `// @ftc-mcp generated: bench-test — scaffolded; team edits expected\n` +
+    `// @ftc-toolchain generated: bench-test — scaffolded; team edits expected\n` +
     `package ${spec.packageName};\n\n` +
     `import com.qualcomm.robotcore.eventloop.opmode.OpMode;\n` +
     `import com.qualcomm.robotcore.eventloop.opmode.TeleOp;\n` +
@@ -349,7 +349,7 @@ export function generateCalculation(
     ? `/**\n * ${description.replace(/\n/g, "\n * ")}\n */\n`
     : `/** Stateless ${className} helpers. */\n`;
   return (
-    `// @ftc-mcp generated: calculation — scaffolded; team edits expected\n` +
+    `// @ftc-toolchain generated: calculation — scaffolded; team edits expected\n` +
     `package ${packageName};\n\n` +
     doc +
     `public final class ${className} {\n\n` +
@@ -395,7 +395,7 @@ export function generateSubsystemDoc(
     : "_TODO: record PID values, RPM setpoints, servo positions, etc. as you tune._\n";
 
   return (
-    `<!-- @ftc-mcp generated: subsystem-doc — scaffolded; team edits expected -->\n` +
+    `<!-- @ftc-toolchain generated: subsystem-doc — scaffolded; team edits expected -->\n` +
     `# ${spec.className}\n\n` +
     `${spec.description ?? "TODO: describe this subsystem."}\n\n` +
     `- **Package:** \`${spec.packageName}\`\n` +

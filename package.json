@@ -1,10 +1,10 @@
 {
-  "name": "ftc-mcp",
+  "name": "ftc-toolchain",
   "version": "0.2.0",
   "description": "MCP server for Codex, Claude, and other AI agents to build, deploy, and debug FTC robot code",
   "type": "module",
   "bin": {
-    "ftc-mcp": "dist/index.js"
+    "ftc-toolchain": "dist/index.js"
   },
   "main": "dist/index.js",
   "files": [
@@ -24,6 +24,7 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
+    "ftc-toolchain",
     "mcp",
     "model-context-protocol",
     "ftc",
@@ -37,12 +38,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Sanjit-K/ftc-mcp.git"
+    "url": "git+https://github.com/Sanjit-K/ftc-toolchain.git"
   },
   "bugs": {
-    "url": "https://github.com/Sanjit-K/ftc-mcp/issues"
+    "url": "https://github.com/Sanjit-K/ftc-toolchain/issues"
   },
-  "homepage": "https://github.com/Sanjit-K/ftc-mcp#readme",
+  "homepage": "https://github.com/Sanjit-K/ftc-toolchain#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.1"

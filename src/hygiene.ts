@@ -20,7 +20,7 @@ function walk(dir: string, suffix: string): string[] {
 }
 
 function marker(source: string): string | null {
-  return source.match(/@ftc-mcp generated:\s*([a-z0-9-]+)/i)?.[1] ?? null;
+  return source.match(/@ftc-toolchain generated:\s*([a-z0-9-]+)/i)?.[1] ?? null;
 }
 
 export async function checkProjectHygiene(projectPath?: string): Promise<string> {

@@ -142,7 +142,7 @@ export function buildControls(spec: TeleOpSpec): string {
   }
 
   return (
-    `// @ftc-mcp generated: controls — scaffolded; driver edits expected\n` +
+    `// @ftc-toolchain generated: controls — scaffolded; driver edits expected\n` +
     `package ${spec.packageName};\n\n` +
     `import com.qualcomm.robotcore.hardware.Gamepad;\n\n` +
     `/**\n` +
@@ -369,7 +369,7 @@ export function buildTeleOp(spec: TeleOpSpec): string {
     lines.length ? `\n        // --- ${title} ---\n${lines.join("\n")}\n` : "";
 
   return (
-    `// @ftc-mcp generated: teleop — scaffolded; team edits expected\n` +
+    `// @ftc-toolchain generated: teleop — scaffolded; team edits expected\n` +
     `package ${spec.packageName};\n\n` +
     `${importLines}\n\n` +
     `/*\n` +

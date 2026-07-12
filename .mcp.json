@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "ftc": {
+    "ftc-toolchain": {
       "command": "node",
       "args": ["dist/index.js"]
     }

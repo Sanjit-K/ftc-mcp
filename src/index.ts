@@ -64,21 +64,21 @@ if (cliArg === "--version" || cliArg === "-v") {
 }
 if (cliArg === "--help" || cliArg === "-h") {
   console.log(
-    `ftc-mcp ${VERSION} — MCP server for AI-driven FTC robot development\n\n` +
+    `ftc-toolchain ${VERSION} — MCP server for AI-driven FTC robot development\n\n` +
       `Usage:\n` +
-      `  ftc-mcp            Start the MCP server on stdio (used by MCP clients)\n` +
-      `  ftc-mcp setup      Download reference material (FTC samples + Pedro docs)\n` +
-      `  ftc-mcp update     Fast-forward clean reference checkouts\n` +
-      `  ftc-mcp doctor     Check project, build, docs, and environment readiness\n` +
-      `  ftc-mcp --version  Print version\n\n` +
-      `Add to Codex:         codex mcp add ftc -- npx -y ftc-mcp\n` +
-      `Add to Claude Code:   claude mcp add ftc -- npx -y ftc-mcp\n` +
-      `Then run once:        npx ftc-mcp setup`
+      `  ftc-toolchain            Start the MCP server on stdio (used by MCP clients)\n` +
+      `  ftc-toolchain setup      Download reference material (FTC samples + Pedro docs)\n` +
+      `  ftc-toolchain update     Fast-forward clean reference checkouts\n` +
+      `  ftc-toolchain doctor     Check project, build, docs, and environment readiness\n` +
+      `  ftc-toolchain --version  Print version\n\n` +
+      `Add to Codex:         codex mcp add ftc-toolchain -- npx -y ftc-toolchain\n` +
+      `Add to Claude Code:   claude mcp add ftc-toolchain -- npx -y ftc-toolchain\n` +
+      `Then run once:        npx ftc-toolchain setup`
   );
   process.exit(0);
 }
 
-const server = new McpServer({ name: "ftc-mcp", version: VERSION });
+const server = new McpServer({ name: "ftc-toolchain", version: VERSION });
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
@@ -106,7 +106,7 @@ const projectPathArg = z
   .string()
   .optional()
   .describe(
-    "Path to the FtcRobotController SDK project. Defaults to $FTC_PROJECT_DIR, then the workspace clone made by create_project."
+    "Path to the FtcRobotController SDK project. Defaults to $FTC_TOOLCHAIN_PROJECT_DIR, then the workspace clone made by create_project."
   );
 
 // ---------- Knowledge ----------
@@ -273,9 +273,9 @@ server.registerTool(
 server.registerTool(
   "list_generated_files",
   {
-    title: "List ftc-mcp scaffolded files",
+    title: "List ftc-toolchain scaffolded files",
     description:
-      "Inventory Java and robot-doc files marked as scaffolded by ftc-mcp, grouped by kind. Markers identify origin only—team edits are expected and must be preserved.",
+      "Inventory Java and robot-doc files marked as scaffolded by ftc-toolchain, grouped by kind. Markers identify origin only—team edits are expected and must be preserved.",
     inputSchema: { projectPath: projectPathArg },
   },
   guard(async ({ projectPath }: { projectPath?: string }) => listGeneratedFiles(projectPath))
@@ -286,7 +286,7 @@ server.registerTool(
   {
     title: "List generated-file backups",
     description:
-      "List project-scoped recovery snapshots created automatically before ftc-mcp overwrites files, including each backup ID and contained relative paths.",
+      "List project-scoped recovery snapshots created automatically before ftc-toolchain overwrites files, including each backup ID and contained relative paths.",
     inputSchema: { projectPath: projectPathArg },
   },
   guard(async ({ projectPath }: { projectPath?: string }) => listBackups(projectPath))
@@ -297,7 +297,7 @@ server.registerTool(
   {
     title: "Preview or restore a backup",
     description:
-      "Preview restoration from an ftc-mcp backup, optionally selecting relative file paths. No files change unless confirm is true; a confirmed restore backs up current versions first and never deletes files.",
+      "Preview restoration from an ftc-toolchain backup, optionally selecting relative file paths. No files change unless confirm is true; a confirmed restore backs up current versions first and never deletes files.",
     inputSchema: {
       projectPath: projectPathArg,
       backupId: z.string().describe("Exact snapshot ID returned by list_backups"),
@@ -597,7 +597,7 @@ server.registerTool(
       if (args.dryRun) {
         return [
           "USB deployment preview — no build or installation performed.",
-          `Project: ${args.projectPath ?? "$FTC_PROJECT_DIR or the default ftc-mcp workspace"}`,
+          `Project: ${args.projectPath ?? "$FTC_TOOLCHAIN_PROJECT_DIR or the default FTC Toolchain workspace"}`,
           `Device: ${args.serial ?? "the only device returned by adb_devices"}`,
           "Plan: verify the USB adb device, build :TeamCode:assembleDebug, install the fresh APK, and restart Robot Controller.",
         ].join("\n");
@@ -790,11 +790,11 @@ server.registerTool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("ftc-mcp server running on stdio");
+console.error("ftc-toolchain server running on stdio");
 if (!refsPresent()) {
   console.error(
-    `[ftc-mcp] Reference material not found in ${REFS_DIR}. ` +
+    `[ftc-toolchain] Reference material not found in ${REFS_DIR}. ` +
       `The knowledge tools (list_samples, search_docs, get_sample, get_doc) need it — ` +
-      `run \`npx ftc-mcp setup\` once. Project/robot tools work without it.`
+      `run \`npx ftc-toolchain setup\` once. Project/robot tools work without it.`
   );
 }

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DATA_DIR, TEAMCODE_JAVA_SUBDIR, ToolError, resolveProject } from "./paths.js";
 
-const MARKER = /@ftc-mcp generated:\s*([a-z0-9-]+)/i;
+const MARKER = /@ftc-toolchain generated:\s*([a-z0-9-]+)/i;
 
 function walk(dir: string, suffixes: string[]): string[] {
   if (!existsSync(dir)) return [];
@@ -49,12 +49,12 @@ export function backupFiles(project: string, files: string[]): string | null {
 export function listBackups(projectPath?: string): string {
   const project = resolveProject(projectPath);
   const root = projectBackupRoot(project);
-  if (!existsSync(root)) return `No ftc-mcp backups for ${project}. Backups are created automatically before explicit overwrites.`;
+  if (!existsSync(root)) return `No ftc-toolchain backups for ${project}. Backups are created automatically before explicit overwrites.`;
   const snapshots = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => ({ id: entry.name, files: allFiles(join(root, entry.name)) }))
     .sort((a, b) => b.id.localeCompare(a.id));
-  if (!snapshots.length) return `No ftc-mcp backups for ${project}.`;
+  if (!snapshots.length) return `No ftc-toolchain backups for ${project}.`;
   const lines = [`Backups for ${project}:`];
   for (const snapshot of snapshots) {
     lines.push(`\n${snapshot.id} (${snapshot.files.length} file${snapshot.files.length === 1 ? "" : "s"})`);
@@ -124,7 +124,7 @@ export function listGeneratedFiles(projectPath?: string): string {
     return marker ? [{ file: relative(project, file), kind: marker[1] }] : [];
   });
   if (!artifacts.length) {
-    return "No marked ftc-mcp artifacts found. Older scaffolds created before provenance markers may still exist; inspect list_opmodes and list_subsystems.";
+    return "No marked ftc-toolchain artifacts found. Older scaffolds created before provenance markers may still exist; inspect list_opmodes and list_subsystems.";
   }
   const grouped = new Map<string, string[]>();
   for (const artifact of artifacts) {
@@ -132,7 +132,7 @@ export function listGeneratedFiles(projectPath?: string): string {
     files.push(artifact.file);
     grouped.set(artifact.kind, files);
   }
-  const lines = [`ftc-mcp scaffold inventory (${artifacts.length} files):`];
+  const lines = [`ftc-toolchain scaffold inventory (${artifacts.length} files):`];
   for (const kind of [...grouped.keys()].sort()) {
     lines.push(`\n${kind}:`, ...grouped.get(kind)!.sort().map((file) => `- ${file}`));
   }

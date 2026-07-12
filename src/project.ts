@@ -45,7 +45,7 @@ export async function createProject(dest?: string): Promise<string> {
   }
   return (
     `Cloned FtcRobotController SDK to ${target}.\n` +
-    `Use this as projectPath for other tools (or set FTC_PROJECT_DIR).`
+    `Use this as projectPath for other tools (or set FTC_TOOLCHAIN_PROJECT_DIR).`
   );
 }
 

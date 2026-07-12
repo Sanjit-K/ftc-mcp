@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
@@ -108,7 +108,13 @@ function ensureLocalProperties(project: string): string | null {
   return `Wrote local.properties pointing at ${sdkDir}`;
 }
 
-export async function buildProject(projectPath?: string): Promise<string> {
+export interface BuildOptions {
+  clean?: boolean;
+  timeoutSeconds?: number;
+  stacktrace?: boolean;
+}
+
+export async function buildProject(projectPath?: string, opts: BuildOptions = {}): Promise<string> {
   const project = resolveProject(projectPath);
   const notes: string[] = [];
   const propsNote = ensureLocalProperties(project);
@@ -117,33 +123,50 @@ export async function buildProject(projectPath?: string): Promise<string> {
   const gradlew = join(project, process.platform === "win32" ? "gradlew.bat" : "gradlew");
   if (!existsSync(gradlew)) throw new ToolError(`No gradlew wrapper in ${project}`);
 
+  const gradleArgs = ["--console=plain"];
+  if (opts.stacktrace) gradleArgs.push("--stacktrace");
+  if (opts.clean) gradleArgs.push(":TeamCode:clean");
+  gradleArgs.push(":TeamCode:assembleDebug");
+  const timeoutMs = Math.max(30, Math.min(opts.timeoutSeconds ?? 600, 1_800)) * 1_000;
+  const started = Date.now();
   const res = await run(
     gradlew,
-    ["--console=plain", ":TeamCode:assembleDebug"],
-    { cwd: project, timeoutMs: 600_000 }
+    gradleArgs,
+    { cwd: project, timeoutMs }
   );
-  if (res.timedOut) throw new ToolError("Gradle build timed out after 10 minutes.");
+  if (res.timedOut) throw new ToolError(`Gradle build timed out after ${Math.round(timeoutMs / 1_000)} seconds.`);
 
   const output = res.stdout + "\n" + res.stderr;
   if (res.code === 0) {
     const apk = join(project, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk");
-    notes.push(`BUILD SUCCESSFUL. APK: ${apk}`);
+    if (!existsSync(apk)) {
+      throw new ToolError(
+        `Gradle reported success but no APK was produced at ${apk}. ` +
+          `Check TeamCode's build type/output configuration and rerun with stacktrace: true.`
+      );
+    }
+    const stat = statSync(apk);
+    notes.push(
+      `BUILD SUCCESSFUL in ${((Date.now() - started) / 1_000).toFixed(1)}s` +
+        `${opts.clean ? " (clean build)" : ""}.\n` +
+        `APK: ${apk}\nSize: ${(stat.size / 1_048_576).toFixed(2)} MB`
+    );
     return notes.join("\n");
   }
 
-  // Surface just the compiler/gradle errors, not thousands of lines of log.
-  const errorLines = output
-    .split("\n")
-    .filter(
-      (l) =>
-        /error:|FAILURE:|Caused by:|\.java:\d+/.test(l) ||
-        /^e: /.test(l) ||
-        /What went wrong/.test(l)
-    )
-    .slice(0, 60);
+  // Surface compiler/Gradle errors with nearby context, not thousands of lines of log.
+  const allLines = output.split("\n");
+  const selected = new Set<number>();
+  allLines.forEach((line, index) => {
+    if (/error:|FAILURE:|Caused by:|\.java:\d+|^e: |What went wrong|Execution failed for task/.test(line)) {
+      for (let i = Math.max(0, index - 1); i <= Math.min(allLines.length - 1, index + 3); i++) selected.add(i);
+    }
+  });
+  const errorLines = [...selected].sort((a, b) => a - b).slice(0, 100).map((index) => allLines[index]);
   throw new ToolError(
-    `BUILD FAILED (exit ${res.code}).\n` +
-      (errorLines.length ? errorLines.join("\n") : tail(output, 4000))
+    `BUILD FAILED after ${((Date.now() - started) / 1_000).toFixed(1)}s (exit ${res.code}).\n` +
+      (opts.stacktrace ? tail(output, 12_000) : errorLines.length ? errorLines.join("\n") : tail(output, 4000)) +
+      (opts.stacktrace ? "" : "\nTip: rerun with stacktrace: true if the extracted error is insufficient.")
   );
 }
 
@@ -230,8 +253,8 @@ export async function robotStatus(serial?: string): Promise<string> {
 }
 
 /** Build first, then deploy only the APK produced by that successful build. */
-export async function buildAndDeploy(projectPath?: string, serial?: string): Promise<string> {
-  const build = await buildProject(projectPath);
+export async function buildAndDeploy(projectPath?: string, serial?: string, buildOptions: BuildOptions = {}): Promise<string> {
+  const build = await buildProject(projectPath, buildOptions);
   const installed = await deploy(projectPath, serial);
   return `${build}\n\n${installed}`;
 }

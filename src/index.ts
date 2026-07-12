@@ -616,9 +616,16 @@ server.registerTool(
     description:
       "Compile the TeamCode module with Gradle (assembleDebug). Returns the APK path on success, " +
       "or the extracted compiler errors on failure. First build can take several minutes.",
-    inputSchema: { projectPath: projectPathArg },
+    inputSchema: {
+      projectPath: projectPathArg,
+      clean: z.boolean().optional().describe("Run :TeamCode:clean before assembleDebug"),
+      timeoutSeconds: z.number().int().min(30).max(1800).optional().describe("Build timeout in seconds (default 600)"),
+      stacktrace: z.boolean().optional().describe("Include Gradle --stacktrace and return a longer failure tail"),
+    },
   },
-  guard(async ({ projectPath }: { projectPath?: string }) => buildProject(projectPath))
+  guard(async ({ projectPath, clean, timeoutSeconds, stacktrace }: { projectPath?: string; clean?: boolean; timeoutSeconds?: number; stacktrace?: boolean }) =>
+    buildProject(projectPath, { clean, timeoutSeconds, stacktrace })
+  )
 );
 
 server.registerTool(
@@ -648,10 +655,13 @@ server.registerTool(
     inputSchema: {
       projectPath: projectPathArg,
       serial: z.string().optional().describe("adb device serial; required when multiple devices are connected"),
+      clean: z.boolean().optional().describe("Run a clean build before deployment"),
+      timeoutSeconds: z.number().int().min(30).max(1800).optional().describe("Build timeout in seconds (default 600)"),
+      stacktrace: z.boolean().optional().describe("Return extended Gradle failure context"),
     },
   },
-  guard(async ({ projectPath, serial }: { projectPath?: string; serial?: string }) =>
-    buildAndDeploy(projectPath, serial)
+  guard(async ({ projectPath, serial, clean, timeoutSeconds, stacktrace }: { projectPath?: string; serial?: string; clean?: boolean; timeoutSeconds?: number; stacktrace?: boolean }) =>
+    buildAndDeploy(projectPath, serial, { clean, timeoutSeconds, stacktrace })
   )
 );
 

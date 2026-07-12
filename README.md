@@ -102,9 +102,9 @@ Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restor
 | `adb_devices` / `adb_connect` | Find / connect to the robot (Control Hub default: `192.168.43.1:5555`) |
 | `robot_status` | Read device identity, Android/RC app versions, battery service, and storage health |
 | `restart_robot_controller` | Restart the RC app without rebuilding or reinstalling code |
-| `build` | Gradle `:TeamCode:assembleDebug` with compiler errors extracted on failure |
+| `build` | Gradle build with optional clean/timeout/stacktrace controls, contextual errors, and verified APK metadata |
 | `deploy` | Install the APK and restart the Robot Controller app |
-| `build_and_deploy` | Build first, then install only that successful build so a stale APK is never deployed |
+| `build_and_deploy` | Build first (optionally clean), verify the APK, then install only that successful artifact |
 | `clear_robot_logs` | Clear logcat before reproducing a problem for a clean debugging capture |
 | `robot_logs` | Filtered logcat from the robot (crashes, OpMode exceptions, SDK events) |
 

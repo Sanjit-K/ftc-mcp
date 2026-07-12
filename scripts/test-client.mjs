@@ -34,9 +34,12 @@ cpSync(
 
 // Deterministic fake Gradle + adb executables let robot workflows run without hardware.
 const fakeGradlew = join(fakeProject, "gradlew");
+const gradleArgsFile = join(fakeProject, "gradle-args.txt");
+const failBuildFlag = join(fakeProject, "fail-build");
+const skipApkFlag = join(fakeProject, "skip-apk");
 writeFileSync(
   fakeGradlew,
-  `#!/usr/bin/env node\nconst fs=require("node:fs"),p=require("node:path");const apk=p.join(process.cwd(),"TeamCode/build/outputs/apk/debug/TeamCode-debug.apk");fs.mkdirSync(p.dirname(apk),{recursive:true});fs.writeFileSync(apk,"fake apk");console.log("BUILD SUCCESSFUL");\n`
+  `#!/usr/bin/env node\nconst fs=require("node:fs"),p=require("node:path"),root=process.cwd();fs.writeFileSync(${JSON.stringify(gradleArgsFile)},process.argv.slice(2).join(" "));if(fs.existsSync(${JSON.stringify(failBuildFlag)})){console.error("FAILURE: Build failed with an exception.\\n/path/Bad.java:42: error: cannot find symbol\\n  symbol: variable missingMotor\\n  location: class Bad");process.exit(1);}const apk=p.join(root,"TeamCode/build/outputs/apk/debug/TeamCode-debug.apk");if(!fs.existsSync(${JSON.stringify(skipApkFlag)})){fs.mkdirSync(p.dirname(apk),{recursive:true});fs.writeFileSync(apk,"fake apk");}console.log("BUILD SUCCESSFUL");\n`
 );
 chmodSync(fakeGradlew, 0o755);
 const fakeAdb = join(fakeProject, "fake-adb");
@@ -529,6 +532,29 @@ try {
 
   r = await call(client, "robot_logs", { filter: "CompTeleOp" });
   check("robot_logs filters clean capture", !r.isError && r.text.includes("test exception") && !r.text.includes("RobotCore"), r.text);
+
+  writeFileSync(failBuildFlag, "1");
+  r = await call(client, "build", { projectPath: fakeProject });
+  check(
+    "build returns compiler error with nearby symbol context",
+    r.isError && r.text.includes("Bad.java:42") && r.text.includes("missingMotor") && r.text.includes("stacktrace: true"),
+    r.text
+  );
+  rmSync(failBuildFlag, { force: true });
+
+  const apkPath = join(fakeProject, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk");
+  rmSync(apkPath, { force: true });
+  writeFileSync(skipApkFlag, "1");
+  r = await call(client, "build", { projectPath: fakeProject });
+  check("build rejects false success when APK is missing", r.isError && r.text.includes("no APK was produced"), r.text);
+  rmSync(skipApkFlag, { force: true });
+
+  r = await call(client, "build", { projectPath: fakeProject, clean: true, timeoutSeconds: 60 });
+  check(
+    "build supports clean mode and reports verified artifact metadata",
+    !r.isError && r.text.includes("clean build") && r.text.includes("Size:") && readFileSync(gradleArgsFile, "utf8").includes(":TeamCode:clean"),
+    r.text
+  );
 
   r = await call(client, "build_and_deploy", { projectPath: fakeProject });
   check(

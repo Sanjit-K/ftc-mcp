@@ -12,7 +12,9 @@ import {
 import {
   adbConnect,
   adbDevices,
+  buildAndDeploy,
   buildProject,
+  clearRobotLogs,
   deploy,
   robotLogs,
 } from "./robot.js";
@@ -24,17 +26,25 @@ import {
   getSubsystem,
   hardwareManifest,
   listSubsystems,
+  validateHardware,
 } from "./subsystems.js";
 import { createTeleOp } from "./teleop.js";
 import { ToolError, REFS_DIR, refsPresent } from "./paths.js";
 import { runSetup } from "./setup.js";
+import { inspectProject } from "./diagnostics.js";
+import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
+import { checkProjectHygiene } from "./hygiene.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 // CLI subcommands (run before starting the server).
 const cliArg = process.argv[2];
 if (cliArg === "setup") {
   await runSetup();
+  process.exit(0);
+}
+if (cliArg === "doctor") {
+  console.log(await inspectProject(process.argv[3]));
   process.exit(0);
 }
 if (cliArg === "--version" || cliArg === "-v") {
@@ -47,6 +57,7 @@ if (cliArg === "--help" || cliArg === "-h") {
       `Usage:\n` +
       `  ftc-mcp            Start the MCP server on stdio (used by MCP clients)\n` +
       `  ftc-mcp setup      Download reference material (FTC samples + Pedro docs)\n` +
+      `  ftc-mcp doctor     Check project, build, docs, and environment readiness\n` +
       `  ftc-mcp --version  Print version\n\n` +
       `Add to Claude Code:  claude mcp add ftc -- npx -y ftc-mcp\n` +
       `Then run once:        npx ftc-mcp setup`
@@ -164,6 +175,30 @@ server.registerTool(
 // ---------- Project ----------
 
 server.registerTool(
+  "inspect_project",
+  {
+    title: "Inspect FTC project readiness",
+    description:
+      "Start here when entering a robot project or debugging setup. Summarizes the resolved project path, SDK, Git state, " +
+      "OpModes, subsystem docs, Pedro setup, hardware-name collisions, latest APK, reference library, and Android SDK, then gives next actions.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => inspectProject(projectPath))
+);
+
+server.registerTool(
+  "check_project_hygiene",
+  {
+    title: "Check FTC project hygiene",
+    description:
+      "Read-only pre-competition audit for duplicate Driver Station names, orphaned generated file pairs, broken subsystem-doc links, " +
+      "incompatible hardware types, stale or missing APKs, disabled OpModes, TODOs, and uncommitted Git changes.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => checkProjectHygiene(projectPath))
+);
+
+server.registerTool(
   "create_project",
   {
     title: "Create FTC SDK project",
@@ -197,6 +232,44 @@ server.registerTool(
 );
 
 server.registerTool(
+  "list_generated_files",
+  {
+    title: "List ftc-mcp scaffolded files",
+    description:
+      "Inventory Java and robot-doc files marked as scaffolded by ftc-mcp, grouped by kind. Markers identify origin only—team edits are expected and must be preserved.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => listGeneratedFiles(projectPath))
+);
+
+server.registerTool(
+  "list_backups",
+  {
+    title: "List generated-file backups",
+    description:
+      "List project-scoped recovery snapshots created automatically before ftc-mcp overwrites files, including each backup ID and contained relative paths.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => listBackups(projectPath))
+);
+
+server.registerTool(
+  "restore_backup",
+  {
+    title: "Preview or restore a backup",
+    description:
+      "Preview restoration from an ftc-mcp backup, optionally selecting relative file paths. No files change unless confirm is true; a confirmed restore backs up current versions first and never deletes files.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      backupId: z.string().describe("Exact snapshot ID returned by list_backups"),
+      files: z.array(z.string()).optional().describe("Relative paths to restore; defaults to every file in the snapshot"),
+      confirm: z.boolean().optional().describe("Must be true to write; omitted/false returns a side-effect-free preview"),
+    },
+  },
+  guard(async (args: Parameters<typeof restoreBackup>[0]) => restoreBackup(args))
+);
+
+server.registerTool(
   "create_opmode",
   {
     title: "Create OpMode from template",
@@ -211,6 +284,7 @@ server.registerTool(
       group: z.string().optional().describe("OpMode group on the Driver Station (default: Generated)"),
       packageName: z.string().optional().describe("Java package (default: org.firstinspires.ftc.teamcode)"),
       overwrite: z.boolean().optional(),
+      dryRun: z.boolean().optional().describe("Validate and return the generated Java without writing any files"),
     },
   },
   guard(async (args: Parameters<typeof createOpMode>[0]) => createOpMode(args))
@@ -298,6 +372,7 @@ server.registerTool(
       methods: z.array(z.string()).optional().describe("Action method names to stub, e.g. ['spinIn','spitOut']"),
       testOpMode: z.boolean().optional().describe("Also generate a bench-test TeleOp (default true)"),
       overwrite: z.boolean().optional(),
+      dryRun: z.boolean().optional().describe("Validate and preview all generated files without writing them"),
     },
   },
   guard(async (args: Parameters<typeof createSubsystem>[0]) => createSubsystem(args))
@@ -359,6 +434,7 @@ server.registerTool(
       group: z.string().optional().describe("Package group (default: util)"),
       description: z.string().optional(),
       overwrite: z.boolean().optional(),
+      dryRun: z.boolean().optional().describe("Validate and return the generated Java without writing any files"),
     },
   },
   guard(async (args: Parameters<typeof createCalculation>[0]) => createCalculation(args))
@@ -374,6 +450,18 @@ server.registerTool(
     inputSchema: { projectPath: projectPathArg },
   },
   guard(async ({ projectPath }: { projectPath?: string }) => hardwareManifest(projectPath))
+);
+
+server.registerTool(
+  "validate_hardware",
+  {
+    title: "Validate hardware configuration names",
+    description:
+      "Pre-flight check for robot configuration mistakes. Flags one Driver Station name requested as incompatible device types, " +
+      "cross-file sharing, and unresolved constants, then tells the team whether it is safe to continue.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => validateHardware(projectPath))
 );
 
 const actionSchema = z.object({
@@ -432,6 +520,7 @@ server.registerTool(
       automations: z.array(automationSchema).optional(),
       slowMode: slowModeSchema.optional(),
       overwrite: z.boolean().optional(),
+      dryRun: z.boolean().optional().describe("Validate and preview the TeleOp and bindings files without writing them"),
     },
   },
   guard(async (args: Parameters<typeof createTeleOp>[0]) => createTeleOp(args))
@@ -491,6 +580,36 @@ server.registerTool(
   guard(async ({ projectPath, serial }: { projectPath?: string; serial?: string }) =>
     deploy(projectPath, serial)
   )
+);
+
+server.registerTool(
+  "build_and_deploy",
+  {
+    title: "Build and deploy fresh robot code",
+    description:
+      "Safest competition-day deployment path: build TeamCode first and only install the APK if that build succeeds, " +
+      "then restart the Robot Controller app. This prevents accidentally deploying a stale APK.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      serial: z.string().optional().describe("adb device serial; required when multiple devices are connected"),
+    },
+  },
+  guard(async ({ projectPath, serial }: { projectPath?: string; serial?: string }) =>
+    buildAndDeploy(projectPath, serial)
+  )
+);
+
+server.registerTool(
+  "clear_robot_logs",
+  {
+    title: "Clear robot logs",
+    description:
+      "Clear the connected robot's logcat buffer before reproducing a crash or bad behavior. Call robot_logs afterward for a clean signal.",
+    inputSchema: {
+      serial: z.string().optional().describe("adb device serial; required when multiple devices are connected"),
+    },
+  },
+  guard(async ({ serial }: { serial?: string }) => clearRobotLogs(serial))
 );
 
 server.registerTool(

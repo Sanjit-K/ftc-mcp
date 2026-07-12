@@ -17,6 +17,7 @@ import {
   buildControls,
   buildTeleOp,
 } from "./teleop-templates.js";
+import { backupFiles } from "./lifecycle.js";
 
 const DRIVE_TYPES: DriveType[] = [
   "mecanum",
@@ -38,6 +39,7 @@ export interface CreateTeleOpArgs {
   automations?: Automation[];
   slowMode?: SlowMode;
   overwrite?: boolean;
+  dryRun?: boolean;
 }
 
 function validName(name: string, what: string): void {
@@ -151,14 +153,25 @@ export function createTeleOp(args: CreateTeleOpArgs): string {
   const dir = join(project, TEAMCODE_JAVA_SUBDIR, ...packageName.split("."));
   const teleopFile = join(dir, `${args.className}.java`);
   const controlsFile = join(dir, `${args.className}Controls.java`);
+  const controlsSource = buildControls(spec);
+  const teleopSource = buildTeleOp(spec);
   for (const f of [teleopFile, controlsFile]) {
-    if (existsSync(f) && !args.overwrite) {
+    if (existsSync(f) && !args.overwrite && !args.dryRun) {
       throw new ToolError(`${relative(project, f)} already exists. Pass overwrite: true to replace it.`);
     }
   }
+  if (args.dryRun) {
+    return (
+      `PREVIEW ONLY — no files written.\nTargets:\n` +
+      [teleopFile, controlsFile].map((f) => `- ${relative(project, f)}${existsSync(f) ? " (already exists)" : ""}`).join("\n") +
+      `\n\n## ${relative(project, teleopFile)}\n\n\`\`\`java\n${teleopSource}\`\`\`` +
+      `\n\n## ${relative(project, controlsFile)}\n\n\`\`\`java\n${controlsSource}\`\`\``
+    );
+  }
+  const backup = args.overwrite ? backupFiles(project, [teleopFile, controlsFile]) : null;
   mkdirSync(dir, { recursive: true });
-  writeFileSync(controlsFile, buildControls(spec));
-  writeFileSync(teleopFile, buildTeleOp(spec));
+  writeFileSync(controlsFile, controlsSource);
+  writeFileSync(teleopFile, teleopSource);
 
   // Build a driver-facing summary of the bindings.
   const map: string[] = [];
@@ -176,6 +189,7 @@ export function createTeleOp(args: CreateTeleOpArgs): string {
     `Created TeleOp + bindings:\n` +
     `  - ${relative(project, teleopFile)} (behavior & automations)\n` +
     `  - ${relative(project, controlsFile)} (controller bindings — edit here to remap)\n` +
+    (backup ? `Backup: ${backup}\n` : "") +
     (map.length ? `\nControl map:\n${map.join("\n")}` : "") +
     (plan.length > (args.subsystems?.length ?? 0)
       ? `\n\nAlso constructed dependencies: ${plan

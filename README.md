@@ -50,6 +50,8 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 
 ## Tools
 
+Start a new session with `inspect_project`. It reports which FTC project is selected, Git changes, OpModes, documented subsystems, Pedro readiness, hardware-name collisions, the latest APK, reference data, and Android SDK setup—plus the next concrete actions.
+
 **Knowledge**
 
 | Tool | What it does |
@@ -63,12 +65,23 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 
 | Tool | What it does |
 |---|---|
+| `inspect_project` | One-shot readiness check for project path, SDK, Git, OpModes, subsystem docs, Pedro, hardware names, APK, references, and Android tooling |
+| `check_project_hygiene` | Read-only pre-competition audit for duplicate names, orphaned files, broken docs, stale builds, TODOs, and Git state |
 | `create_project` | Clone a fresh FtcRobotController SDK project |
 | `list_opmodes` | List `@TeleOp`/`@Autonomous` classes in TeamCode |
+| `list_generated_files` | Inventory files scaffolded by ftc-mcp, grouped by artifact type |
+| `list_backups` | Browse project-scoped recovery snapshots made before overwrites |
+| `restore_backup` | Preview or restore selected backup files; confirmed restores back up current versions first |
 | `create_opmode` | Scaffold an OpMode: `linear-teleop`, `mecanum-teleop`, `linear-auto`, `pedro-auto`, `pedro-teleop` |
 | `install_pedro` | Add Pedro Pathing to a project (Gradle deps, compileSdk 34, `Constants.java` scaffold) |
 
 **Subsystems** — the recommended way to structure robot code: one plain class per mechanism, with a living markdown knowledge base the LLM reads and updates.
+
+All code generators support `dryRun: true`. This performs the same validation and returns the exact target paths and generated source without touching the filesystem. Use it to review a proposed OpMode, subsystem, calculation helper, or TeleOp before creation or overwrite.
+
+When `overwrite: true` replaces an existing generated target, ftc-mcp first copies the old version to `~/.ftc-mcp/backups` (or `$FTC_MCP_HOME/backups`). The backup stays outside the robot repository. `list_generated_files` inventories marked scaffolds, but the marker only records origin—team edits are expected and must be preserved.
+
+Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restore is preview-only unless `confirm: true`; before a confirmed rollback, the files currently in the project are backed up again, so recovery is reversible.
 
 | Tool | What it does |
 |---|---|
@@ -78,6 +91,7 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 | `create_teleop` | Generate a TeleOp **plus a separate `<Name>Controls.java`** holding only the button bindings, wiring drive + subsystem actions + automations |
 | `create_calculation` | Scaffold a stateless helper class (e.g. live trajectory math) |
 | `hardware_manifest` | Aggregate every config name across subsystems and flag duplicates/typos vs. the Driver Station config |
+| `validate_hardware` | Pre-flight config check for incompatible device types, shared names, and unresolved constants |
 
 **Robot**
 
@@ -86,6 +100,8 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 | `adb_devices` / `adb_connect` | Find / connect to the robot (Control Hub default: `192.168.43.1:5555`) |
 | `build` | Gradle `:TeamCode:assembleDebug` with compiler errors extracted on failure |
 | `deploy` | Install the APK and restart the Robot Controller app |
+| `build_and_deploy` | Build first, then install only that successful build so a stale APK is never deployed |
+| `clear_robot_logs` | Clear logcat before reproducing a problem for a clean debugging capture |
 | `robot_logs` | Filtered logcat from the robot (crashes, OpMode exceptions, SDK events) |
 
 ## Typical agent session
@@ -139,6 +155,7 @@ Describe how driving should feel and what should be automated; `create_teleop` w
 
 ```bash
 npm test            # build + MCP smoke test (no robot needed)
+npx ftc-mcp doctor [projectPath] # diagnose local project/tooling readiness
 node scripts/test-build.mjs [projectPath]           # real Gradle build through the build tool
 node scripts/test-pedro-build.mjs [projectPath]     # install_pedro + all templates + full build
 node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + a full TeleOp + build

@@ -32,20 +32,29 @@ function serialArgs(serial?: string): string[] {
 }
 
 /** Fail fast (instead of letting adb block on "waiting for device"). */
-async function requireDevice(serial?: string): Promise<void> {
+async function requireDevice(serial?: string): Promise<string> {
   const res = await adb(["devices"]);
   const attached = res.stdout
     .split("\n")
     .slice(1)
-    .filter((l) => /\tdevice$/.test(l.trim().replace(/\s+/, "\t")));
+    .map((l) => l.trim().split(/\s+/))
+    .filter((parts) => parts.length >= 2 && parts[1] === "device")
+    .map((parts) => parts[0]);
   if (attached.length === 0) {
     throw new ToolError(
       "No device connected. Run adb_connect (robot WiFi) or plug in USB, then check adb_devices."
     );
   }
-  if (serial && !attached.some((l) => l.startsWith(serial))) {
+  if (serial && !attached.includes(serial)) {
     throw new ToolError(`Device ${serial} not found. Connected:\n${attached.join("\n")}`);
   }
+  if (!serial && attached.length > 1) {
+    throw new ToolError(
+      `Multiple devices are connected; choose one with the serial parameter:\n` +
+        attached.map((s) => `- ${s}`).join("\n")
+    );
+  }
+  return serial ?? attached[0];
 }
 
 export async function adbDevices(): Promise<string> {
@@ -146,9 +155,9 @@ export async function deploy(projectPath?: string, serial?: string): Promise<str
   if (!existsSync(apk)) {
     throw new ToolError(`APK not found at ${apk}. Run the build tool first.`);
   }
-  await requireDevice(serial);
+  const selected = await requireDevice(serial);
 
-  const install = await adb([...serialArgs(serial), "install", "-r", apk], 120_000);
+  const install = await adb([...serialArgs(selected), "install", "-r", apk], 120_000);
   const installOut = (install.stdout + install.stderr).trim();
   if (install.code !== 0 || !/Success/i.test(installOut)) {
     throw new ToolError(
@@ -160,12 +169,28 @@ export async function deploy(projectPath?: string, serial?: string): Promise<str
   }
 
   // Restart the Robot Controller app so the new code is live.
-  await adb([...serialArgs(serial), "shell", "am", "force-stop", RC_PACKAGE]);
-  await adb([...serialArgs(serial), "shell", "am", "start", "-n", RC_ACTIVITY]);
+  await adb([...serialArgs(selected), "shell", "am", "force-stop", RC_PACKAGE]);
+  await adb([...serialArgs(selected), "shell", "am", "start", "-n", RC_ACTIVITY]);
   return (
-    `Installed TeamCode-debug.apk and restarted the Robot Controller app.\n` +
+    `Installed TeamCode-debug.apk on ${selected} and restarted the Robot Controller app.\n` +
     `New OpModes should now appear on the Driver Station. Give it ~10s to reconnect.`
   );
+}
+
+/** Build first, then deploy only the APK produced by that successful build. */
+export async function buildAndDeploy(projectPath?: string, serial?: string): Promise<string> {
+  const build = await buildProject(projectPath);
+  const installed = await deploy(projectPath, serial);
+  return `${build}\n\n${installed}`;
+}
+
+export async function clearRobotLogs(serial?: string): Promise<string> {
+  const selected = await requireDevice(serial);
+  const res = await adb([...serialArgs(selected), "logcat", "-c"]);
+  if (res.code !== 0) {
+    throw new ToolError(`Could not clear logcat on ${selected}: ${res.stderr.trim() || res.stdout.trim()}`);
+  }
+  return `Cleared robot logs on ${selected}. Reproduce the issue, then call robot_logs.`;
 }
 
 export async function robotLogs(opts: {
@@ -174,9 +199,9 @@ export async function robotLogs(opts: {
   filter?: string;
   errorsOnly?: boolean;
 }): Promise<string> {
-  await requireDevice(opts.serial);
+  const selected = await requireDevice(opts.serial);
   const lines = Math.min(opts.lines ?? 300, 2000);
-  const args = [...serialArgs(opts.serial), "logcat", "-d", "-t", String(lines)];
+  const args = [...serialArgs(selected), "logcat", "-d", "-t", String(lines)];
   if (opts.errorsOnly) args.push("*:E");
   const res = await adb(args, 30_000);
   if (res.code !== 0) {

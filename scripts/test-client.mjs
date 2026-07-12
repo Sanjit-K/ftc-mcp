@@ -2,7 +2,7 @@
 // Smoke test: spins up the server over stdio and exercises each tool group.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { cpSync, mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync, utimesSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -29,6 +29,23 @@ cpSync(
   join(ROOT, "refs/FtcRobotController/build.dependencies.gradle"),
   join(fakeProject, "build.dependencies.gradle")
 );
+
+// Deterministic fake Gradle + adb executables let robot workflows run without hardware.
+const fakeGradlew = join(fakeProject, "gradlew");
+writeFileSync(
+  fakeGradlew,
+  `#!/usr/bin/env node\nconst fs=require("node:fs"),p=require("node:path");const apk=p.join(process.cwd(),"TeamCode/build/outputs/apk/debug/TeamCode-debug.apk");fs.mkdirSync(p.dirname(apk),{recursive:true});fs.writeFileSync(apk,"fake apk");console.log("BUILD SUCCESSFUL");\n`
+);
+chmodSync(fakeGradlew, 0o755);
+const fakeAdb = join(fakeProject, "fake-adb");
+const fakeMcpHome = join(fakeProject, "mcp-data");
+const multiDeviceFlag = join(fakeProject, "multi-device");
+writeFileSync(
+  fakeAdb,
+  `#!/usr/bin/env node\nconst fs=require("node:fs"),a=process.argv.slice(2);if(a.includes("devices")){const extra=fs.existsSync(${JSON.stringify(multiDeviceFlag)})?"\\nsecond-hub\\tdevice":"";console.log("List of devices attached\\ncontrol-hub-1\\tdevice"+extra);}else if(a.includes("install")){console.log("Success");}else if(a.includes("logcat")&&a.includes("-d")){console.log("07-12 RobotCore: ready\\n07-12 CompTeleOp: test exception");}else{console.log("OK");}\n`
+);
+chmodSync(fakeAdb, 0o755);
+process.env.ADB_PATH = fakeAdb;
 cpSync(
   join(ROOT, "refs/FtcRobotController/build.common.gradle"),
   join(fakeProject, "build.common.gradle")
@@ -37,13 +54,14 @@ cpSync(
 const transport = new StdioClientTransport({
   command: "node",
   args: [join(ROOT, "dist/index.js")],
+  env: { ...process.env, ADB_PATH: fakeAdb, FTC_MCP_HOME: fakeMcpHome },
 });
 const client = new Client({ name: "test-client", version: "0.0.1" });
 await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 20 tools (got ${tools.tools.length})`, tools.tools.length === 20);
+  check(`lists 28 tools (got ${tools.tools.length})`, tools.tools.length === 28);
 
   // Knowledge
   let r = await call(client, "list_samples", { category: "Sensor" });
@@ -62,6 +80,29 @@ try {
   check("get_doc missing -> isError", r.isError && r.text.includes("not found"));
 
   // Project tools against the fake project
+  let projectCheck = await call(client, "inspect_project", { projectPath: fakeProject });
+  check(
+    "inspect_project reports actionable project readiness",
+    !projectCheck.isError &&
+      projectCheck.text.includes("Status: READY") &&
+      projectCheck.text.includes("Gradle wrapper: ready") &&
+      projectCheck.text.includes("Run build before deploy"),
+    projectCheck.text
+  );
+
+  r = await call(client, "create_opmode", {
+    projectPath: fakeProject,
+    className: "PreviewAuto",
+    template: "linear-auto",
+    dryRun: true,
+  });
+  const previewAutoPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PreviewAuto.java");
+  check(
+    "create_opmode dry-run returns source without writing",
+    !r.isError && r.text.includes("PREVIEW ONLY") && r.text.includes("class PreviewAuto") && !existsSync(previewAutoPath),
+    r.text.slice(0, 300)
+  );
+
   r = await call(client, "create_opmode", {
     projectPath: fakeProject,
     className: "TestMecanumDrive",
@@ -76,8 +117,22 @@ try {
   check(
     "opmode content correct",
     existsSync(omPath) &&
+      readFileSync(omPath, "utf8").includes("@ftc-mcp generated: opmode") &&
       readFileSync(omPath, "utf8").includes('@TeleOp(name = "Test Drive"') &&
       readFileSync(omPath, "utf8").includes("package org.firstinspires.ftc.teamcode;")
+  );
+
+  const existingOpMode = readFileSync(omPath, "utf8");
+  r = await call(client, "create_opmode", {
+    projectPath: fakeProject,
+    className: "TestMecanumDrive",
+    template: "linear-auto",
+    dryRun: true,
+  });
+  check(
+    "dry-run can preview an existing target without overwrite or mutation",
+    !r.isError && r.text.includes("already exists") && r.text.includes("extends LinearOpMode") && readFileSync(omPath, "utf8") === existingOpMode,
+    r.text.slice(0, 300)
   );
 
   r = await call(client, "create_opmode", {
@@ -86,6 +141,51 @@ try {
     template: "mecanum-teleop",
   });
   check("create_opmode refuses overwrite", r.isError && r.text.includes("already exists"));
+
+  r = await call(client, "create_opmode", {
+    projectPath: fakeProject,
+    className: "TestMecanumDrive",
+    template: "linear-auto",
+    overwrite: true,
+  });
+  const backupDir = r.text.match(/Backup: (.+)/)?.[1]?.trim();
+  const backedUpOpMode = backupDir ? join(backupDir, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/TestMecanumDrive.java") : "";
+  check(
+    "explicit overwrite backs up the previous file outside the project",
+    !r.isError && Boolean(backupDir) && backupDir.startsWith(fakeMcpHome) && existsSync(backedUpOpMode) &&
+      readFileSync(backedUpOpMode, "utf8").includes("left_front_drive") && readFileSync(omPath, "utf8").includes("@Autonomous"),
+    r.text
+  );
+
+  r = await call(client, "list_backups", { projectPath: fakeProject });
+  const backupId = backupDir ? backupDir.split(/[\\/]/).pop() : "";
+  check(
+    "list_backups exposes the recovery snapshot and relative file",
+    !r.isError && Boolean(backupId) && r.text.includes(backupId) && r.text.includes("TestMecanumDrive.java"),
+    r.text
+  );
+
+  r = await call(client, "restore_backup", { projectPath: fakeProject, backupId });
+  check(
+    "restore_backup previews without changing the current file",
+    !r.isError && r.text.includes("RESTORE PREVIEW") && readFileSync(omPath, "utf8").includes("@Autonomous"),
+    r.text
+  );
+
+  r = await call(client, "restore_backup", {
+    projectPath: fakeProject,
+    backupId,
+    files: ["../outside.java"],
+    confirm: true,
+  });
+  check("restore_backup rejects path traversal", r.isError && r.text.includes("Unsafe backup file path"), r.text);
+
+  r = await call(client, "restore_backup", { projectPath: fakeProject, backupId, confirm: true });
+  check(
+    "confirmed restore recovers prior source and backs up the replaced version",
+    !r.isError && r.text.includes("Current versions were backed up first") && readFileSync(omPath, "utf8").includes("left_front_drive"),
+    r.text
+  );
 
   r = await call(client, "install_pedro", { projectPath: fakeProject, version: "2.0.1" });
   const deps = readFileSync(join(fakeProject, "build.dependencies.gradle"), "utf8");
@@ -148,6 +248,26 @@ try {
   const docPath = join(fakeProject, "docs/subsystems/RollingIntake.md");
   const indexPath = join(fakeProject, "docs/ROBOT.md");
   check("create_subsystem writes class+test+doc+index", !r.isError && existsSync(subPath) && existsSync(testPath) && existsSync(docPath) && existsSync(indexPath), r.text);
+  r = await call(client, "list_generated_files", { projectPath: fakeProject });
+  check(
+    "list_generated_files inventories marked scaffold types",
+    !r.isError && r.text.includes("opmode:") && r.text.includes("subsystem:") && r.text.includes("bench-test:") && r.text.includes("subsystem-doc:"),
+    r.text
+  );
+
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "PreviewArm",
+    servos: [{ name: "armServo", config: "arm" }],
+    methods: ["raise", "lower"],
+    dryRun: true,
+  });
+  const previewArmPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/subsystems/PreviewArm.java");
+  check(
+    "create_subsystem dry-run previews class, bench test, and docs without writing",
+    !r.isError && r.text.includes("PREVIEW ONLY") && r.text.includes("class PreviewArm") && r.text.includes("TestPreviewArm") && !existsSync(previewArmPath),
+    r.text.slice(0, 400)
+  );
   const subSrc = existsSync(subPath) ? readFileSync(subPath, "utf8") : "";
   check(
     "subsystem class shape",
@@ -171,7 +291,20 @@ try {
   check("index lists subsystem", readFileSync(indexPath, "utf8").includes("RollingIntake"));
 
   r = await call(client, "create_subsystem", { projectPath: fakeProject, name: "RollingIntake", group: "intake" });
-  check("create_subsystem refuses overwrite", r.isError && r.text.includes("already exists"));
+  check("create_subsystem refuses overwrite", r.isError && r.text.includes("Refusing to replace"));
+
+  const docOnlyPath = join(fakeProject, "docs/subsystems/DocOnly.md");
+  writeFileSync(docOnlyPath, "# DocOnly\n\nMentor notes that must survive.\n");
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "DocOnly",
+    motors: [{ name: "docMotor" }],
+  });
+  check(
+    "create_subsystem never clobbers a pre-existing doc implicitly",
+    r.isError && r.text.includes("docs/subsystems/DocOnly.md") && readFileSync(docOnlyPath, "utf8").includes("must survive"),
+    r.text
+  );
 
   r = await call(client, "document_subsystem", {
     projectPath: fakeProject,
@@ -225,9 +358,28 @@ try {
   r = await call(client, "create_subsystem", { projectPath: fakeProject, name: "BadDep", group: "x", dependencies: [{ type: "Ghost" }] });
   check("subsystem rejects missing dependency", r.isError && r.text.includes("not found"), r.text);
 
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "BadHardware",
+    motors: [{ name: "shared", config: "one" }],
+    servos: [{ name: "shared", config: "two" }],
+  });
+  check("subsystem rejects duplicate hardware fields across device types", r.isError && r.text.includes("Duplicate hardware field"), r.text);
+
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "BadConfig",
+    motors: [{ name: "leftMotor", config: "bad\"name" }],
+  });
+  check("subsystem rejects config names that would break generated Java", r.isError && r.text.includes("Invalid config name"), r.text);
+
   r = await call(client, "create_calculation", { projectPath: fakeProject, name: "TrajectorySolver" });
   const calcPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/util/TrajectorySolver.java");
   check("create_calculation writes helper", !r.isError && existsSync(calcPath) && readFileSync(calcPath, "utf8").includes("private TrajectorySolver()"), r.text);
+
+  r = await call(client, "create_calculation", { projectPath: fakeProject, name: "PreviewMath", dryRun: true });
+  const previewMathPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/util/PreviewMath.java");
+  check("create_calculation dry-run is side-effect free", !r.isError && r.text.includes("class PreviewMath") && !existsSync(previewMathPath), r.text);
 
   // Add a second subsystem re-using the same config name, to test collision detection.
   await call(client, "create_subsystem", {
@@ -244,7 +396,36 @@ try {
     r.text
   );
 
+  await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "ConfigConflict",
+    group: "test",
+    servos: [{ name: "conflictingServo", config: "intake" }],
+    testOpMode: false,
+  });
+  r = await call(client, "validate_hardware", { projectPath: fakeProject });
+  check(
+    "validate_hardware flags one config name requested as incompatible types",
+    !r.isError && r.text.includes("Hardware validation: ERROR") && r.text.includes('"intake"') && r.text.includes("DcMotorEx") && r.text.includes("Servo"),
+    r.text
+  );
+
   // create_teleop: TeleOp + separate bindings file
+  r = await call(client, "create_teleop", {
+    projectPath: fakeProject,
+    className: "PreviewTeleOp",
+    drive: "none",
+    subsystems: ["RollingIntake"],
+    actions: [{ name: "intake", input: "driver.a", mode: "hold", onActive: "rollingIntake.spinIn()", onInactive: "rollingIntake.stop()" }],
+    dryRun: true,
+  });
+  const previewTeleOpPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/PreviewTeleOp.java");
+  check(
+    "create_teleop dry-run previews behavior and bindings without writing",
+    !r.isError && r.text.includes("class PreviewTeleOp") && r.text.includes("class PreviewTeleOpControls") && !existsSync(previewTeleOpPath),
+    r.text.slice(0, 400)
+  );
+
   r = await call(client, "create_teleop", {
     projectPath: fakeProject,
     className: "CompTeleOp",
@@ -320,15 +501,55 @@ try {
   });
   check("create_teleop rejects non-hold grouped action", r.isError && r.text.includes("must be"), r.text);
 
-  // Robot tools (no robot attached — just verify graceful behavior)
+  // Robot workflow tools against deterministic fake Gradle + adb.
   r = await call(client, "adb_devices", {});
-  check("adb_devices runs", !r.isError && r.text.includes("devices"), r.text.slice(0, 200));
+  check("adb_devices runs", !r.isError && r.text.includes("control-hub-1"), r.text.slice(0, 200));
 
-  r = await call(client, "robot_logs", {});
-  console.log(`INFO  robot_logs without device -> ${r.isError ? "error (ok)" : "output"}: ${r.text.slice(0, 120).replace(/\n/g, " ")}`);
+  r = await call(client, "clear_robot_logs", {});
+  check("clear_robot_logs clears selected device", !r.isError && r.text.includes("control-hub-1"), r.text);
 
-  r = await call(client, "deploy", { projectPath: fakeProject });
-  check("deploy without APK -> isError with hint", r.isError && r.text.includes("Run the build tool first"));
+  r = await call(client, "robot_logs", { filter: "CompTeleOp" });
+  check("robot_logs filters clean capture", !r.isError && r.text.includes("test exception") && !r.text.includes("RobotCore"), r.text);
+
+  r = await call(client, "build_and_deploy", { projectPath: fakeProject });
+  check(
+    "build_and_deploy creates fresh APK and installs to selected device",
+    !r.isError && existsSync(join(fakeProject, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")) &&
+      r.text.includes("BUILD SUCCESSFUL") && r.text.includes("control-hub-1"),
+    r.text
+  );
+
+  await call(client, "create_opmode", {
+    projectPath: fakeProject,
+    className: "DuplicateDisplayName",
+    template: "linear-auto",
+    opModeName: "TestPedroAuto",
+  });
+  const orphanControls = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/OrphanControls.java");
+  writeFileSync(orphanControls, "// @ftc-mcp generated: controls — scaffolded; driver edits expected\nclass OrphanControls {}\n");
+  const brokenDoc = join(fakeProject, "docs/subsystems/Broken.md");
+  writeFileSync(brokenDoc, "<!-- @ftc-mcp generated: subsystem-doc -->\n# Broken\n\n- **Source:** `TeamCode/src/main/java/missing/Broken.java`\n");
+  const future = new Date(Date.now() + 10_000);
+  utimesSync(orphanControls, future, future);
+  r = await call(client, "check_project_hygiene", { projectPath: fakeProject });
+  check(
+    "check_project_hygiene finds duplicate names, orphan pairs, broken docs, hardware errors, and stale APK",
+    !r.isError && r.text.includes("Project hygiene: ERROR") && r.text.includes('Driver Station name "TestPedroAuto"') &&
+      r.text.includes("OrphanControls.java has no matching Orphan.java") && r.text.includes("points to missing source") &&
+      r.text.includes("incompatible types") && r.text.includes("APK is stale"),
+    r.text
+  );
+
+  writeFileSync(multiDeviceFlag, "1");
+  r = await call(client, "clear_robot_logs", {});
+  check(
+    "robot tools require serial when multiple devices are attached",
+    r.isError && r.text.includes("Multiple devices") && r.text.includes("control-hub-1") && r.text.includes("second-hub"),
+    r.text
+  );
+  r = await call(client, "clear_robot_logs", { serial: "second-hub" });
+  check("explicit serial selects one of multiple devices", !r.isError && r.text.includes("second-hub"), r.text);
+  rmSync(multiDeviceFlag, { force: true });
 } finally {
   await client.close();
   rmSync(fakeProject, { recursive: true, force: true });

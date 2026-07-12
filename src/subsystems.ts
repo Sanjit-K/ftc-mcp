@@ -26,6 +26,7 @@ import {
   normalizeMethods,
   toSnake,
 } from "./subsystem-templates.js";
+import { backupFiles } from "./lifecycle.js";
 
 const DOCS_SUBDIR = "docs/subsystems";
 const ROBOT_INDEX = "docs/ROBOT.md";
@@ -73,6 +74,7 @@ export interface CreateSubsystemArgs {
   methods?: string[];
   testOpMode?: boolean;
   overwrite?: boolean;
+  dryRun?: boolean;
 }
 
 function fillConfigs<T extends { name: string; config?: string }>(items: T[] | undefined): (T & { config: string })[] {
@@ -80,7 +82,14 @@ function fillConfigs<T extends { name: string; config?: string }>(items: T[] | u
     if (!/^[a-z][A-Za-z0-9]*$/.test(it.name)) {
       throw new ToolError(`Invalid device field name "${it.name}" (use camelCase starting lowercase).`);
     }
-    return { ...it, config: it.config && it.config.length ? it.config : toSnake(it.name) };
+    const config = it.config && it.config.length ? it.config : toSnake(it.name);
+    if (!config.trim()) throw new ToolError(`Device "${it.name}" has an empty config name.`);
+    if (/["\\\r\n\0]/.test(config)) {
+      throw new ToolError(
+        `Invalid config name ${JSON.stringify(config)} for "${it.name}": quotes, backslashes, and control characters are not supported.`
+      );
+    }
+    return { ...it, config };
   });
 }
 
@@ -116,14 +125,52 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
     }
   }
 
+  const motors = fillConfigs(args.motors);
+  const servos = fillConfigs(args.servos);
+  const crServos = fillConfigs(args.crServos);
+  const sensors = fillConfigs(args.sensors) as SensorSpec[];
+  const hardware = [
+    ...motors.map((d) => ({ ...d, kind: "motor" })),
+    ...servos.map((d) => ({ ...d, kind: "servo" })),
+    ...crServos.map((d) => ({ ...d, kind: "continuous-rotation servo" })),
+    ...sensors.map((d) => ({ ...d, kind: `${d.type} sensor` })),
+  ];
+  const seenFields = new Map<string, string>();
+  const seenConfigs = new Map<string, string>();
+  for (const device of hardware) {
+    const priorField = seenFields.get(device.name);
+    if (priorField) {
+      throw new ToolError(`Duplicate hardware field "${device.name}" (${priorField} and ${device.kind}). Use a unique camelCase name.`);
+    }
+    seenFields.set(device.name, device.kind);
+    const priorConfig = seenConfigs.get(device.config);
+    if (priorConfig) {
+      throw new ToolError(
+        `Config name "${device.config}" is assigned to both ${priorConfig} and ${device.kind} in ${args.name}. ` +
+          `Each hardware device should have one unique Driver Station config name.`
+      );
+    }
+    seenConfigs.set(device.config, device.kind);
+  }
+  for (const dependency of dependencies) {
+    const prior = seenFields.get(dependency.name);
+    if (prior === "dependency") {
+      throw new ToolError(`Duplicate dependency field "${dependency.name}" in ${args.name}.`);
+    }
+    if (prior) {
+      throw new ToolError(`Dependency field "${dependency.name}" conflicts with a hardware field in ${args.name}.`);
+    }
+    seenFields.set(dependency.name, "dependency");
+  }
+
   const spec: SubsystemSpec = {
     packageName,
     className: args.name,
     description: args.description,
-    motors: fillConfigs(args.motors),
-    servos: fillConfigs(args.servos),
-    crServos: fillConfigs(args.crServos),
-    sensors: fillConfigs(args.sensors) as SensorSpec[],
+    motors,
+    servos,
+    crServos,
+    sensors,
     dependencies,
     constants: args.constants ?? [],
     dashboard: args.dashboard ?? "panels",
@@ -131,19 +178,44 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
   };
 
   const classFile = javaFileFor(project, packageName, args.name);
-  if (existsSync(classFile) && !args.overwrite) {
-    throw new ToolError(`${relative(project, classFile)} already exists. Pass overwrite: true to replace it.`);
+  const wantTest = args.testOpMode ?? true;
+  const testFile = wantTest ? javaFileFor(project, packageName, `Test${args.name}`) : null;
+  const docFile = join(project, DOCS_SUBDIR, `${args.name}.md`);
+  const classSource = generateSubsystemClass(spec);
+  const testSource = testFile ? generateTestOpMode(spec, args.group ?? "Subsystems") : null;
+  const classRel = relative(project, classFile);
+  const testRel = testFile ? relative(project, testFile) : null;
+  const docSource = generateSubsystemDoc(spec, classRel, testRel);
+  const conflicts = [classFile, ...(testFile ? [testFile] : []), docFile].filter((file) => existsSync(file));
+  if (conflicts.length && !args.overwrite && !args.dryRun) {
+    throw new ToolError(
+      `Refusing to replace existing generated target${conflicts.length === 1 ? "" : "s"}:\n` +
+        conflicts.map((file) => `- ${relative(project, file)}`).join("\n") +
+        `\nPass dryRun: true to preview safely, or overwrite: true to replace all listed targets.`
+    );
   }
+  if (args.dryRun) {
+    const targets = [
+      `- ${classRel}${existsSync(classFile) ? " (already exists)" : ""}`,
+      ...(testFile ? [`- ${testRel}${existsSync(testFile) ? " (already exists)" : ""}`] : []),
+      `- ${relative(project, docFile)}${existsSync(docFile) ? " (already exists)" : ""}`,
+    ];
+    return (
+      `PREVIEW ONLY — no files written.\nTargets:\n${targets.join("\n")}\n\n` +
+      `## ${classRel}\n\n\`\`\`java\n${classSource}\`\`\`` +
+      (testSource ? `\n\n## ${testRel}\n\n\`\`\`java\n${testSource}\`\`\`` : "") +
+      `\n\n## ${relative(project, docFile)}\n\n${docSource}`
+    );
+  }
+  const backup = args.overwrite ? backupFiles(project, conflicts) : null;
   mkdirSync(join(classFile, ".."), { recursive: true });
-  writeFileSync(classFile, generateSubsystemClass(spec));
+  writeFileSync(classFile, classSource);
   const created = [relative(project, classFile)];
 
   let relTest: string | null = null;
-  const wantTest = args.testOpMode ?? true;
-  if (wantTest) {
-    const testFile = javaFileFor(project, packageName, `Test${args.name}`);
+  if (testFile && testSource) {
     if (!existsSync(testFile) || args.overwrite) {
-      writeFileSync(testFile, generateTestOpMode(spec, args.group ?? "Subsystems"));
+      writeFileSync(testFile, testSource);
       relTest = relative(project, testFile);
       created.push(relTest);
     } else {
@@ -186,6 +258,7 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
       ? `\nConstructor injects: ${dependencies.map((d) => `${d.type} ${d.name}`).join(", ")}`
       : "") +
     (spec.constants.length ? `\nConstants: ${spec.constants.map((c) => c.name).join(", ")}` : "") +
+    (backup ? `\nBackup: ${backup}` : "") +
     dashWarning +
     `\n\nNext: fill in the method bodies, then run document_subsystem to capture behavior/tuning, ` +
     `or hardware_manifest to check config names across the robot.`
@@ -305,17 +378,24 @@ export function createCalculation(opts: {
   group?: string;
   description?: string;
   overwrite?: boolean;
+  dryRun?: boolean;
 }): string {
   const project = resolveProject(opts.projectPath);
   validClassName(opts.name);
   const packageName = opts.group ? packageForGroup(opts.group) : `${DEFAULT_PACKAGE}.util`;
   const file = javaFileFor(project, packageName, opts.name);
-  if (existsSync(file) && !opts.overwrite) {
+  const source = generateCalculation(packageName, opts.name, opts.description);
+  const targetExists = existsSync(file);
+  if (targetExists && !opts.overwrite && !opts.dryRun) {
     throw new ToolError(`${relative(project, file)} already exists. Pass overwrite: true to replace it.`);
   }
+  if (opts.dryRun) {
+    return `PREVIEW ONLY — no files written.\nTarget: ${relative(project, file)}${targetExists ? " (already exists)" : ""}\n\n\`\`\`java\n${source}\`\`\``;
+  }
+  const backup = opts.overwrite ? backupFiles(project, [file]) : null;
   mkdirSync(join(file, ".."), { recursive: true });
-  writeFileSync(file, generateCalculation(packageName, opts.name, opts.description));
-  return `Created ${relative(project, file)} (stateless helper in package ${packageName}).`;
+  writeFileSync(file, source);
+  return `Created ${relative(project, file)} (stateless helper in package ${packageName}).${backup ? `\nBackup: ${backup}` : ""}`;
 }
 
 // ---------- hardware manifest ----------
@@ -370,10 +450,18 @@ export function parseConstructor(project: string, className: string): CtorParam[
     .filter((p) => p.type && p.name);
 }
 
-interface ManifestEntry {
+export interface ManifestEntry {
   config: string;
   file: string;
   detail: string;
+  type: string;
+}
+
+export interface HardwareAnalysis {
+  entries: ManifestEntry[];
+  duplicates: string[];
+  incompatibleTypes: { config: string; types: string[] }[];
+  unresolved: string[];
 }
 
 /**
@@ -383,7 +471,7 @@ interface ManifestEntry {
  *  2. String args to `new Subsystem(hardwareMap, "a", "b")` constructor calls
  *     (matches the pattern where config names are injected at construction).
  */
-export function hardwareManifest(projectPath?: string): string {
+export function analyzeHardwareConfiguration(projectPath?: string): HardwareAnalysis {
   const project = resolveProject(projectPath);
   const entries: ManifestEntry[] = [];
 
@@ -405,22 +493,18 @@ export function hardwareManifest(projectPath?: string): string {
       const literal = m[3];
       const ident = m[4];
       const config = literal ?? (ident ? constMap.get(ident) : undefined);
-      if (config) entries.push({ config, file: rel, detail: `hardwareMap.get(${type})` });
+      if (config) entries.push({ config, file: rel, detail: `hardwareMap.get(${type})`, type });
       else if (ident)
-        entries.push({ config: `<${ident}>`, file: rel, detail: `hardwareMap.get(${type}), unresolved constant` });
+        entries.push({ config: `<${ident}>`, file: rel, detail: `hardwareMap.get(${type}), unresolved constant`, type });
     }
 
     // 2. new Xxx(hardwareMap, "a", "b", ...)
     for (const m of src.matchAll(/new\s+(\w+)\s*\(\s*hardwareMap\s*,([^;]*?)\)/g)) {
       const subsystem = m[1];
       for (const lit of m[2].matchAll(/"([^"]+)"/g)) {
-        entries.push({ config: lit[1], file: rel, detail: `new ${subsystem}(...)` });
+        entries.push({ config: lit[1], file: rel, detail: `new ${subsystem}(...)`, type: subsystem });
       }
     }
-  }
-
-  if (entries.length === 0) {
-    return "No robot-configuration names found in TeamCode (no hardwareMap.get literals or subsystem constructor strings).";
   }
 
   const byConfig = new Map<string, ManifestEntry[]>();
@@ -430,24 +514,68 @@ export function hardwareManifest(projectPath?: string): string {
     byConfig.set(e.config, list);
   }
 
-  const lines: string[] = [];
   const duplicates: string[] = [];
   for (const config of [...byConfig.keys()].sort()) {
     const uses = byConfig.get(config)!;
     const files = [...new Set(uses.map((u) => u.file))];
-    lines.push(`"${config}" — ${uses.map((u) => `${u.detail} @ ${u.file}`).join("; ")}`);
     if (files.length > 1) duplicates.push(config);
   }
 
+  const incompatibleTypes = [...byConfig.entries()]
+    .map(([config, uses]) => ({ config, types: [...new Set(uses.map((u) => u.type))].sort() }))
+    .filter(({ config, types }) => !config.startsWith("<") && types.length > 1);
+  const unresolved = [...byConfig.keys()].filter((c) => c.startsWith("<"));
+  return { entries, duplicates, incompatibleTypes, unresolved };
+}
+
+export function validateHardware(projectPath?: string): string {
+  const analysis = analyzeHardwareConfiguration(projectPath);
+  if (analysis.entries.length === 0) {
+    return "WARNING: No robot-configuration names found in TeamCode. Add hardware through create_subsystem or hardwareMap.get before field testing.";
+  }
+  const lines = [`Hardware validation: ${analysis.incompatibleTypes.length ? "ERROR" : analysis.duplicates.length || analysis.unresolved.length ? "WARNING" : "PASS"}`];
+  lines.push(`Found ${new Set(analysis.entries.map((e) => e.config)).size} config name(s) across ${new Set(analysis.entries.map((e) => e.file)).size} file(s).`);
+  for (const issue of analysis.incompatibleTypes) {
+    lines.push(`ERROR: "${issue.config}" is requested as incompatible types: ${issue.types.join(", ")}.`);
+  }
+  for (const config of analysis.duplicates.filter((d) => !analysis.incompatibleTypes.some((i) => i.config === d))) {
+    lines.push(`WARNING: "${config}" is used in multiple files; verify that sharing is intentional.`);
+  }
+  if (analysis.unresolved.length) {
+    lines.push(`WARNING: ${analysis.unresolved.length} hardware name(s) could not be resolved from constants: ${analysis.unresolved.join(", ")}.`);
+  }
+  lines.push(analysis.incompatibleTypes.length ? "Fix errors before running an OpMode." : "Cross-check these names against Configure Robot on the Driver Station before deployment.");
+  return lines.join("\n");
+}
+
+export function hardwareManifest(projectPath?: string): string {
+  const analysis = analyzeHardwareConfiguration(projectPath);
+  if (analysis.entries.length === 0) {
+    return "No robot-configuration names found in TeamCode (no hardwareMap.get literals or subsystem constructor strings).";
+  }
+  const byConfig = new Map<string, ManifestEntry[]>();
+  for (const e of analysis.entries) {
+    const list = byConfig.get(e.config) ?? [];
+    list.push(e);
+    byConfig.set(e.config, list);
+  }
+  const lines = [...byConfig.keys()].sort().map((config) => {
+    const uses = byConfig.get(config)!;
+    return `"${config}" — ${uses.map((u) => `${u.detail} @ ${u.file}`).join("; ")}`;
+  });
+
   let out = `Robot-configuration names in TeamCode (add each to the Driver Station config):\n\n${lines.join("\n")}`;
-  if (duplicates.length) {
+  if (analysis.incompatibleTypes.length) {
+    out += `\n\nERROR — same config name requested as incompatible types: ` +
+      analysis.incompatibleTypes.map((i) => `"${i.config}" (${i.types.join(" / ")})`).join(", ");
+  }
+  if (analysis.duplicates.length) {
     out +=
       `\n\n⚠ Same config name used in multiple files (verify this is intentional, not a copy-paste bug): ` +
-      duplicates.map((d) => `"${d}"`).join(", ");
+      analysis.duplicates.map((d) => `"${d}"`).join(", ");
   }
-  const unresolved = [...byConfig.keys()].filter((c) => c.startsWith("<"));
-  if (unresolved.length) {
-    out += `\n\nNote: ${unresolved.length} name(s) come from constants/params this scan could not resolve to a literal.`;
+  if (analysis.unresolved.length) {
+    out += `\n\nNote: ${analysis.unresolved.length} name(s) come from constants/params this scan could not resolve to a literal.`;
   }
   return out;
 }

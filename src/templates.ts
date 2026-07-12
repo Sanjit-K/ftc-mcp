@@ -365,18 +365,25 @@ public class ${a.className} extends OpMode {
 }
 
 export function renderTemplate(id: TemplateId, args: TemplateArgs): string {
+  let source: string;
   switch (id) {
     case "linear-teleop":
-      return linearTeleop(args);
+      source = linearTeleop(args);
+      break;
     case "mecanum-teleop":
-      return mecanumTeleop(args);
+      source = mecanumTeleop(args);
+      break;
     case "linear-auto":
-      return linearAuto(args);
+      source = linearAuto(args);
+      break;
     case "pedro-auto":
-      return pedroAuto(args);
+      source = pedroAuto(args);
+      break;
     case "pedro-teleop":
-      return pedroTeleop(args);
+      source = pedroTeleop(args);
+      break;
   }
+  return `// @ftc-mcp generated: opmode — scaffolded; team edits expected\n${source}`;
 }
 
 /**
@@ -385,7 +392,7 @@ export function renderTemplate(id: TemplateId, args: TemplateArgs): string {
  * pathing/tuning docs. Defaults assume mecanum drive + goBILDA Pinpoint.
  */
 export function pedroConstants(packageName: string): string {
-  return `package ${packageName};
+  return `// @ftc-mcp generated: pedro-constants — scaffolded; tune every value\npackage ${packageName};
 
 import com.pedropathing.control.FilteredPIDFCoefficients;
 import com.pedropathing.control.PIDFCoefficients;

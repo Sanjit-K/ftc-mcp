@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { run } from "./exec.js";
+import { backupFiles } from "./lifecycle.js";
 import {
   DEFAULT_PACKAGE,
   TEAMCODE_JAVA_SUBDIR,
@@ -58,6 +59,7 @@ export interface CreateOpModeArgs {
   group?: string;
   packageName?: string;
   overwrite?: boolean;
+  dryRun?: boolean;
 }
 
 export function createOpMode(args: CreateOpModeArgs): string {
@@ -81,9 +83,17 @@ export function createOpMode(args: CreateOpModeArgs): string {
 
   const dir = join(project, TEAMCODE_JAVA_SUBDIR, ...packageName.split("."));
   const file = join(dir, `${args.className}.java`);
-  if (existsSync(file) && !args.overwrite) {
+  const targetExists = existsSync(file);
+  if (targetExists && !args.overwrite && !args.dryRun) {
     throw new ToolError(`${file} already exists. Pass overwrite: true to replace it.`);
   }
+  if (args.dryRun) {
+    return (
+      `PREVIEW ONLY — no files written.\nTarget: ${relative(project, file)}${targetExists ? " (already exists)" : ""}\n\n` +
+      `\`\`\`java\n${source}\`\`\``
+    );
+  }
+  const backup = args.overwrite ? backupFiles(project, [file]) : null;
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, source);
 
@@ -102,7 +112,7 @@ export function createOpMode(args: CreateOpModeArgs): string {
         "Run the install_pedro tool, then tune the generated Constants.java before running paths.";
     }
   }
-  return `Created ${relative(project, file)} in ${project}${note}`;
+  return `Created ${relative(project, file)} in ${project}${backup ? `\nBackup: ${backup}` : ""}${note}`;
 }
 
 // ---------- List OpModes in TeamCode ----------

@@ -57,7 +57,7 @@ export default function Home() {
       </section>
 
       <section className="features shell" id="features">
-        <div className="sectionHead"><div><p className="sectionKicker">20 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
+        <div className="sectionHead"><div><p className="sectionKicker">28 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
         <div className="featureGrid">{features.map((f) => <article className="featureCard" key={f.id}><div className="featureTop"><span>{f.id}</span><i>↗</i></div><p className="featureLabel">{f.label}</p><h3>{f.title}</h3><p>{f.body}</p><code>{f.tag}</code></article>)}</div>
       </section>
 

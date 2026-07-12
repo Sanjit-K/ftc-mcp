@@ -64,6 +64,7 @@ claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
 | `create_subsystem` | Scaffold a subsystem class (HardwareMap constructor, config-name constants, action methods, `stop()`) + a bench-test TeleOp + a markdown doc |
 | `document_subsystem` | Write/update a subsystem's knowledge-base doc (functions, tuning, config names, quirks) |
 | `list_subsystems` / `get_subsystem` | Read the robot's architecture from `docs/` |
+| `create_teleop` | Generate a TeleOp **plus a separate `<Name>Controls.java`** holding only the button bindings, wiring drive + subsystem actions + automations |
 | `create_calculation` | Scaffold a stateless helper class (e.g. live trajectory math) |
 | `hardware_manifest` | Aggregate every config name across subsystems and flag duplicates/typos vs. the Driver Station config |
 
@@ -98,6 +99,15 @@ The intended way to build a robot: describe each mechanism to the LLM and let it
 
 Sub-subsystems live under a shared group, e.g. `group: "shooting.turret"` → `teamcode/shooting/turret/`. Calculation-heavy logic goes in `create_calculation` helpers so it stays out of the subsystem and OpMode files.
 
+### Building a TeleOp
+
+Describe how driving should feel and what should be automated; `create_teleop` writes **two files**:
+
+- **`<Name>Controls.java`** — nothing but the bindings (`intakeIn` → `driver.right_bumper`). A driver can open this and remap buttons without reading any robot logic or touching an LLM.
+- **`<Name>.java`** — the TeleOp: constructs the subsystems, wires the drivetrain, applies each binding, and stubs out the automations you described.
+
+*"Mecanum drive, hold right bumper to intake / left bumper to outtake, operator Y toggles the shooter, left trigger is slow mode, and auto-sort balls by color."* becomes one `create_teleop` call. Bindings are `hold` (while held), `press` (rising edge), or `toggle`. Competing actions on one mechanism (intake in vs. out) share an `exclusiveGroup` so they compile to a single if/else-if/else with one idle call — no fighting over the motor. Automations (multi-step or sensor-driven) come out as clearly-marked stub methods to fill in.
+
 ## Configuration
 
 | Env var | Meaning |
@@ -118,5 +128,5 @@ Sub-subsystems live under a shared group, e.g. `group: "shooting.turret"` → `t
 npm test            # build + MCP smoke test (no robot needed)
 node scripts/test-build.mjs [projectPath]           # real Gradle build through the build tool
 node scripts/test-pedro-build.mjs [projectPath]     # install_pedro + all templates + full build
-node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + full build
+node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + a full TeleOp + build
 ```

@@ -69,6 +69,25 @@ await call("create_calculation", {
   overwrite: true,
 });
 
+await call("create_teleop", {
+  projectPath: project,
+  className: "CompTeleOp",
+  drive: "mecanum",
+  subsystems: ["RollingIntake", "Spindexer", "Turret"],
+  slowMode: { input: "driver.left_trigger > 0.5", mode: "toggle", factor: 0.4 },
+  actions: [
+    { name: "intakeIn", label: "Intake in", input: "driver.right_bumper", mode: "hold", onActive: "rollingIntake.spinIn()", onInactive: "rollingIntake.stop()", exclusiveGroup: "intake" },
+    { name: "intakeOut", label: "Intake out", input: "driver.left_bumper", mode: "hold", onActive: "rollingIntake.spitOut()", exclusiveGroup: "intake" },
+    { name: "shooter", label: "Toggle shooter", input: "operator.y", mode: "toggle", onActive: "turret.on()", onInactive: "turret.off()" },
+    { name: "index", label: "Index next", input: "operator.b", mode: "press", onActive: "spindexer.indexNext()" },
+  ],
+  automations: [
+    { name: "autoSortByColor", description: "Read the color sensor and index balls into the correct slot automatically." },
+    { name: "autoAim", description: "While held, rotate the turret to aim at the goal.", input: "operator.right_trigger > 0.5" },
+  ],
+  overwrite: true,
+});
+
 await call("list_subsystems", { projectPath: project });
 await call("hardware_manifest", { projectPath: project });
 await call("build", { projectPath: project });

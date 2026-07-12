@@ -285,6 +285,14 @@ function findJavaByClassName(project: string, className: string): string | null 
   return null;
 }
 
+/** Resolve a subsystem/class name to its package (from its `package` declaration). */
+export function resolveClassPackage(project: string, className: string): string | null {
+  const file = findJavaByClassName(project, className);
+  if (!file) return null;
+  const m = readFileSync(file, "utf8").match(/^\s*package\s+([\w.]+)\s*;/m);
+  return m ? m[1] : null;
+}
+
 interface ManifestEntry {
   config: string;
   file: string;

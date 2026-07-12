@@ -43,7 +43,7 @@ await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 19 tools (got ${tools.tools.length})`, tools.tools.length === 19);
+  check(`lists 20 tools (got ${tools.tools.length})`, tools.tools.length === 20);
 
   // Knowledge
   let r = await call(client, "list_samples", { category: "Sensor" });
@@ -204,6 +204,54 @@ try {
     !r.isError && r.text.includes('"intake"') && r.text.includes("multiple files"),
     r.text
   );
+
+  // create_teleop: TeleOp + separate bindings file
+  r = await call(client, "create_teleop", {
+    projectPath: fakeProject,
+    className: "CompTeleOp",
+    drive: "mecanum",
+    subsystems: ["RollingIntake"],
+    slowMode: { input: "driver.left_trigger > 0.5", mode: "toggle", factor: 0.4 },
+    actions: [
+      { name: "intakeIn", label: "Intake in", input: "driver.right_bumper", mode: "hold", onActive: "rollingIntake.spinIn()", onInactive: "rollingIntake.stop()", exclusiveGroup: "intake" },
+      { name: "intakeOut", label: "Intake out", input: "driver.left_bumper", mode: "hold", onActive: "rollingIntake.spitOut()", exclusiveGroup: "intake" },
+    ],
+    automations: [
+      { name: "autoSort", description: "Sort balls by color automatically." },
+    ],
+  });
+  const teleopPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/CompTeleOp.java");
+  const ctrlPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/CompTeleOpControls.java");
+  check("create_teleop writes teleop + controls", !r.isError && existsSync(teleopPath) && existsSync(ctrlPath), r.text);
+  const ctrlSrc = existsSync(ctrlPath) ? readFileSync(ctrlPath, "utf8") : "";
+  check(
+    "controls file is a clean bindings map",
+    ctrlSrc.includes("public static double driveForward(Gamepad driver, Gamepad operator)") &&
+      ctrlSrc.includes("public static boolean intakeIn(Gamepad driver, Gamepad operator) { return driver.right_bumper; }") &&
+      !ctrlSrc.includes("rollingIntake"), // no robot logic leaks into bindings
+    ctrlSrc
+  );
+  const teleopSrc = existsSync(teleopPath) ? readFileSync(teleopPath, "utf8") : "";
+  check(
+    "teleop wires drive, exclusive group, automation stub",
+    teleopSrc.includes("new RollingIntake(hardwareMap)") &&
+      teleopSrc.includes("else if (CompTeleOpControls.intakeOut(driver, operator))") &&
+      teleopSrc.includes("else { rollingIntake.stop(); }") &&
+      teleopSrc.includes("private void autoSort()") &&
+      teleopSrc.includes("CompTeleOpControls.driveForward"),
+    teleopSrc.slice(0, 300)
+  );
+
+  r = await call(client, "create_teleop", { projectPath: fakeProject, className: "NoSub", subsystems: ["DoesNotExist"] });
+  check("create_teleop rejects unknown subsystem", r.isError && r.text.includes("not found"), r.text);
+
+  r = await call(client, "create_teleop", {
+    projectPath: fakeProject,
+    className: "BadGroup",
+    subsystems: ["RollingIntake"],
+    actions: [{ name: "x", input: "driver.a", mode: "press", onActive: "rollingIntake.spinIn()", exclusiveGroup: "g" }],
+  });
+  check("create_teleop rejects non-hold grouped action", r.isError && r.text.includes("must be"), r.text);
 
   // Robot tools (no robot attached — just verify graceful behavior)
   r = await call(client, "adb_devices", {});

@@ -25,6 +25,7 @@ import {
   hardwareManifest,
   listSubsystems,
 } from "./subsystems.js";
+import { createTeleOp } from "./teleop.js";
 import { ToolError } from "./paths.js";
 
 const server = new McpServer({ name: "ftc-mcp", version: "0.1.0" });
@@ -319,6 +320,62 @@ server.registerTool(
     inputSchema: { projectPath: projectPathArg },
   },
   guard(async ({ projectPath }: { projectPath?: string }) => hardwareManifest(projectPath))
+);
+
+const actionSchema = z.object({
+  name: z.string().describe("camelCase action name, e.g. intakeIn"),
+  label: z.string().optional().describe("Human description for comments/control map"),
+  input: z
+    .string()
+    .describe("Gamepad expression using `driver` and `operator`, e.g. 'driver.right_bumper' or 'operator.left_trigger > 0.5'"),
+  mode: z.enum(["hold", "press", "toggle"]).describe("hold = while held, press = on rising edge, toggle = flip on press"),
+  onActive: z.string().optional().describe("Code to run when active, no trailing ';', e.g. 'intake.spinIn()'"),
+  onInactive: z.string().optional().describe("Code to run when inactive (hold/toggle), e.g. 'intake.stop()'"),
+  exclusiveGroup: z
+    .string()
+    .optional()
+    .describe(
+      "Group name for mutually-exclusive hold actions on one mechanism (e.g. intake in/out). Members become one if/else-if/else chain with a shared idle, so they can't override each other."
+    ),
+});
+const automationSchema = z.object({
+  name: z.string().describe("camelCase; becomes a stub method + call site"),
+  description: z.string().describe("What this automation should do (drives the generated Javadoc/TODO)"),
+  input: z.string().optional().describe("Optional gating input; omit for a behavior that runs every loop (e.g. sensor-driven)"),
+});
+const slowModeSchema = z.object({
+  input: z.string().describe("Gamepad expression, e.g. 'driver.left_trigger > 0.5'"),
+  mode: z.enum(["hold", "toggle"]),
+  factor: z.number().describe("Drive multiplier when active, e.g. 0.4"),
+});
+
+server.registerTool(
+  "create_teleop",
+  {
+    title: "Create a TeleOp with a separate bindings file",
+    description:
+      "Generate a TeleOp OpMode PLUS a separate <Name>Controls.java that holds only the controller bindings, so a " +
+      "driver can remap buttons without touching robot logic or an LLM. Describe the drivetrain, which subsystems to " +
+      "use, button actions (hold/press/toggle → subsystem calls), an optional slow mode, and named automations " +
+      "(multi-step or sensor-driven behaviors, which are scaffolded as stub methods to fill in).",
+    inputSchema: {
+      projectPath: projectPathArg,
+      className: z.string().describe("TeleOp class name, e.g. CompTeleOp"),
+      opModeName: z.string().optional().describe("Driver Station display name (default: class name)"),
+      group: z.string().optional().describe("OpMode group / package group (default: Competition)"),
+      packageName: z.string().optional(),
+      drive: z
+        .enum(["mecanum", "mecanum-field-centric", "pedro", "pedro-field-centric", "none"])
+        .optional()
+        .describe("Drivetrain wiring (default: mecanum). pedro* requires install_pedro."),
+      subsystems: z.array(z.string()).optional().describe("Subsystem class names to construct (must already exist)"),
+      actions: z.array(actionSchema).optional(),
+      automations: z.array(automationSchema).optional(),
+      slowMode: slowModeSchema.optional(),
+      overwrite: z.boolean().optional(),
+    },
+  },
+  guard(async (args: Parameters<typeof createTeleOp>[0]) => createTeleOp(args))
 );
 
 // ---------- Robot ----------

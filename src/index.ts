@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getDoc, getSample, listSamples, searchDocs } from "./knowledge.js";
+import { getDoc, getSample, listSamples, resetKnowledgeCache, searchDocs } from "./knowledge.js";
 import {
   createOpMode,
   createProject,
@@ -30,7 +30,7 @@ import {
 } from "./subsystems.js";
 import { createTeleOp } from "./teleop.js";
 import { ToolError, REFS_DIR, refsPresent } from "./paths.js";
-import { runSetup } from "./setup.js";
+import { referenceStatus, runSetup, updateReferences } from "./setup.js";
 import { inspectProject } from "./diagnostics.js";
 import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
@@ -40,7 +40,11 @@ const VERSION = "0.2.0";
 // CLI subcommands (run before starting the server).
 const cliArg = process.argv[2];
 if (cliArg === "setup") {
-  await runSetup();
+  await runSetup({ update: process.argv.includes("--update") });
+  process.exit(0);
+}
+if (cliArg === "update") {
+  await runSetup({ update: true });
   process.exit(0);
 }
 if (cliArg === "doctor") {
@@ -57,6 +61,7 @@ if (cliArg === "--help" || cliArg === "-h") {
       `Usage:\n` +
       `  ftc-mcp            Start the MCP server on stdio (used by MCP clients)\n` +
       `  ftc-mcp setup      Download reference material (FTC samples + Pedro docs)\n` +
+      `  ftc-mcp update     Fast-forward clean reference checkouts\n` +
       `  ftc-mcp doctor     Check project, build, docs, and environment readiness\n` +
       `  ftc-mcp --version  Print version\n\n` +
       `Add to Claude Code:  claude mcp add ftc -- npx -y ftc-mcp\n` +
@@ -169,6 +174,32 @@ server.registerTool(
   guard(async ({ id }: { id: string }) => {
     const doc = getDoc(id);
     return `# ${doc.title}\n\n${doc.text}`;
+  })
+);
+
+server.registerTool(
+  "reference_status",
+  {
+    title: "Check reference library status",
+    description:
+      "Report local FTC sample and Pedro documentation counts, Git branches, commits, dates, and cache location without using the network.",
+    inputSchema: {},
+  },
+  guard(async () => referenceStatus())
+);
+
+server.registerTool(
+  "update_references",
+  {
+    title: "Update FTC and Pedro references",
+    description:
+      "Fast-forward the local official FTC SDK samples and Pedro docs checkouts. Refuses to touch a reference checkout with local changes.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const result = await updateReferences();
+    resetKnowledgeCache();
+    return result;
   })
 );
 

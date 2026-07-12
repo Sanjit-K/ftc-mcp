@@ -147,23 +147,54 @@ function scoreAndSnippet(
 ): { score: number; snippet: string } {
   const lower = text.toLowerCase();
   const titleLower = title.toLowerCase();
+  const words = [...new Set((`${title} ${text}`).toLowerCase().match(/[a-z0-9]+/g) ?? [])];
   let score = 0;
   let firstIdx = -1;
+  let matched = 0;
   for (const term of terms) {
-    let idx = lower.indexOf(term);
+    let actual = term;
+    let idx = lower.indexOf(actual);
+    if (idx === -1 && term.length >= 5) {
+      const threshold = term.length >= 8 ? 2 : 1;
+      actual = words.find((word) => Math.abs(word.length - term.length) <= threshold && editDistance(word, term) <= threshold) ?? term;
+      idx = lower.indexOf(actual);
+    }
     let count = 0;
     while (idx !== -1 && count < 50) {
       count++;
       if (firstIdx === -1) firstIdx = idx;
-      idx = lower.indexOf(term, idx + term.length);
+      idx = lower.indexOf(actual, idx + actual.length);
     }
-    score += count;
-    if (titleLower.includes(term)) score += 25;
+    if (count) matched++;
+    score += Math.min(count, 12);
+    if (titleLower.includes(actual)) score += 30;
   }
   if (score === 0) return { score: 0, snippet: "" };
+  const coverage = matched / terms.length;
+  score = Math.round(score * coverage * coverage + (coverage === 1 ? 40 : 0));
   const start = Math.max(0, (firstIdx === -1 ? 0 : firstIdx) - 80);
   const snippet = text.slice(start, start + 300).replace(/\s+/g, " ").trim();
   return { score, snippet: (start > 0 ? "…" : "") + snippet + "…" };
+}
+
+function editDistance(a: string, b: string): number {
+  const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[b.length];
+}
+
+export function resetKnowledgeCache(): void {
+  docCache = null;
 }
 
 export function searchDocs(query: string, limit = 8): SearchHit[] {

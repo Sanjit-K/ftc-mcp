@@ -6,6 +6,8 @@ import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, chm
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -61,7 +63,7 @@ await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 28 tools (got ${tools.tools.length})`, tools.tools.length === 28);
+  check(`lists 30 tools (got ${tools.tools.length})`, tools.tools.length === 30);
 
   // Knowledge
   let r = await call(client, "list_samples", { category: "Sensor" });
@@ -72,6 +74,12 @@ try {
 
   r = await call(client, "search_docs", { query: "pinpoint localizer tuning" });
   check("search_docs", !r.isError && r.text.includes("pedro-docs"), r.text.slice(0, 300));
+
+  r = await call(client, "search_docs", { query: "pinpont localizer tunning" });
+  check("search_docs tolerates small technical-term typos", !r.isError && r.text.includes("pedro-docs"), r.text.slice(0, 300));
+
+  r = await call(client, "reference_status", {});
+  check("reference_status reports local counts and revisions", !r.isError && r.text.includes("Reference library: READY") && r.text.includes("FTC samples") && r.text.includes("Pedro docs"), r.text);
 
   r = await call(client, "get_doc", { id: "pathing/examples/auto" });
   check("get_doc", !r.isError && r.text.includes("pathBuilder"), r.text.slice(0, 200));
@@ -553,6 +561,31 @@ try {
 } finally {
   await client.close();
   rmSync(fakeProject, { recursive: true, force: true });
+}
+
+// Reference updates must refuse dirty checkouts before attempting any network operation.
+const fakeRefs = join(tmpdir(), `ftc-mcp-refs-test-${Date.now()}`);
+for (const name of ["FtcRobotController", "PedroDocs"]) {
+  const repo = join(fakeRefs, name);
+  mkdirSync(repo, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  writeFileSync(join(repo, "team-notes.txt"), "do not overwrite\n");
+}
+const oldRefs = process.env.FTC_MCP_REFS;
+process.env.FTC_MCP_REFS = fakeRefs;
+try {
+  const { updateReferences } = await import(`${pathToFileURL(join(ROOT, "dist/setup.js")).href}?dirty-test=${Date.now()}`);
+  let message = "";
+  try {
+    await updateReferences();
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  check("update_references refuses dirty local checkouts", message.includes("local changes"), message);
+} finally {
+  if (oldRefs === undefined) delete process.env.FTC_MCP_REFS;
+  else process.env.FTC_MCP_REFS = oldRefs;
+  rmSync(fakeRefs, { recursive: true, force: true });
 }
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

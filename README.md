@@ -60,6 +60,8 @@ Start a new session with `inspect_project`. It reports which FTC project is sele
 | `get_sample` | Full Java source of a sample |
 | `search_docs` | Keyword search across Pedro Pathing docs + SDK samples |
 | `get_doc` | Fetch a Pedro Pathing doc page as markdown |
+| `reference_status` | Show local reference counts, commits, branches, dates, and cache location |
+| `update_references` | Fast-forward clean FTC SDK and Pedro documentation checkouts |
 
 **Project**
 
@@ -156,6 +158,7 @@ Describe how driving should feel and what should be automated; `create_teleop` w
 ```bash
 npm test            # build + MCP smoke test (no robot needed)
 npx ftc-mcp doctor [projectPath] # diagnose local project/tooling readiness
+npx ftc-mcp setup --update       # refresh cached FTC samples and Pedro docs
 node scripts/test-build.mjs [projectPath]           # real Gradle build through the build tool
 node scripts/test-pedro-build.mjs [projectPath]     # install_pedro + all templates + full build
 node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + a full TeleOp + build

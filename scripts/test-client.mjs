@@ -186,6 +186,45 @@ try {
   r = await call(client, "get_subsystem", { projectPath: fakeProject, name: "RollingIntake", includeSource: true });
   check("get_subsystem returns doc+source", !r.isError && r.text.includes("stalls above 0.8") && r.text.includes("class RollingIntake"), r.text.slice(0, 200));
 
+  // Subsystem with dependencies + dashboard-tunable constants
+  await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "FlapServo",
+    group: "intake",
+    servos: [{ name: "flap", config: "flap" }],
+    methods: ["on", "off"],
+  });
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "Sorter",
+    group: "sorting",
+    motors: [{ name: "sortMotor", config: "sorter" }],
+    dependencies: [{ type: "FlapServo", name: "flapServo" }],
+    constants: [
+      { name: "Kp", value: "0.01", comment: "gain", tunable: true },
+      { name: "SLOTS", value: "3", javaType: "int", tunable: false },
+    ],
+    dashboard: "panels",
+    methods: ["indexNext"],
+  });
+  const sorterPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/sorting/Sorter.java");
+  const sorterSrc = existsSync(sorterPath) ? readFileSync(sorterPath, "utf8") : "";
+  check(
+    "subsystem: dep injection + @Configurable tunables + fixed const",
+    !r.isError &&
+      sorterSrc.includes("@Configurable") &&
+      sorterSrc.includes("import com.bylazar.configurables.annotations.Configurable;") &&
+      sorterSrc.includes("private final FlapServo flapServo;") &&
+      sorterSrc.includes("public Sorter(HardwareMap hardwareMap, FlapServo flapServo)") &&
+      sorterSrc.includes("this.flapServo = flapServo;") &&
+      sorterSrc.includes("public static double Kp = 0.01;") &&
+      sorterSrc.includes("private static final int SLOTS = 3;"),
+    sorterSrc.slice(0, 600)
+  );
+
+  r = await call(client, "create_subsystem", { projectPath: fakeProject, name: "BadDep", group: "x", dependencies: [{ type: "Ghost" }] });
+  check("subsystem rejects missing dependency", r.isError && r.text.includes("not found"), r.text);
+
   r = await call(client, "create_calculation", { projectPath: fakeProject, name: "TrajectorySolver" });
   const calcPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/util/TrajectorySolver.java");
   check("create_calculation writes helper", !r.isError && existsSync(calcPath) && readFileSync(calcPath, "utf8").includes("private TrajectorySolver()"), r.text);
@@ -241,6 +280,34 @@ try {
       teleopSrc.includes("CompTeleOpControls.driveForward"),
     teleopSrc.slice(0, 300)
   );
+
+  // create_teleop must construct a subsystem's dependencies first, and honor guards
+  r = await call(client, "create_teleop", {
+    projectPath: fakeProject,
+    className: "SortTeleOp",
+    drive: "none",
+    subsystems: ["Sorter"],
+    actions: [
+      { name: "index", label: "Index", input: "operator.a", mode: "press", onActive: "sorter.indexNext()", guard: "!sorter.isBusy()" },
+    ],
+  });
+  const sortTeleopPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/SortTeleOp.java");
+  const sortTeleopSrc = existsSync(sortTeleopPath) ? readFileSync(sortTeleopPath, "utf8") : "";
+  check(
+    "teleop constructs dependency (FlapServo) before dependent (Sorter)",
+    !r.isError &&
+      sortTeleopSrc.includes("flapServo = new FlapServo(hardwareMap);") &&
+      sortTeleopSrc.includes("sorter = new Sorter(hardwareMap, flapServo);") &&
+      sortTeleopSrc.indexOf("new FlapServo") < sortTeleopSrc.indexOf("new Sorter(hardwareMap"),
+    sortTeleopSrc.slice(0, 500)
+  );
+  check(
+    "teleop action guard is ANDed with the (edge) trigger",
+    sortTeleopSrc.includes("boolean indexNow = SortTeleOpControls.index(driver, operator);") &&
+      sortTeleopSrc.includes("if ((!sorter.isBusy()) && (indexNow && !indexPrev))"),
+    sortTeleopSrc
+  );
+  check("teleop reports auto-constructed dependency", r.text.includes("FlapServo"), r.text);
 
   r = await call(client, "create_teleop", { projectPath: fakeProject, className: "NoSub", subsystems: ["DoesNotExist"] });
   check("create_teleop rejects unknown subsystem", r.isError && r.text.includes("not found"), r.text);

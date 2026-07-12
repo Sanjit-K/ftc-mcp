@@ -241,6 +241,34 @@ server.registerTool(
       servos: z.array(deviceSchema).optional(),
       crServos: z.array(deviceSchema).optional(),
       sensors: z.array(sensorSchema).optional(),
+      dependencies: z
+        .array(
+          z.object({
+            type: z.string().describe("Class name of another subsystem, e.g. ColorSensor"),
+            name: z.string().optional().describe("Field name (default: camelCase of type)"),
+          })
+        )
+        .optional()
+        .describe("Other subsystems this one needs, injected into the constructor (must already exist)"),
+      constants: z
+        .array(
+          z.object({
+            name: z.string().describe("Constant name, e.g. Kp or INTAKE_POSITION"),
+            value: z.string().describe("Java literal/expression, e.g. '0.59' or 'Math.toRadians(180)'"),
+            javaType: z.string().optional().describe("Java type (default: double)"),
+            comment: z.string().optional(),
+            tunable: z
+              .boolean()
+              .optional()
+              .describe("true (default): live-editable dashboard field; false: fixed private static final"),
+          })
+        )
+        .optional()
+        .describe("Named constants (PID gains, servo positions, RPM setpoints). Tunable ones are live-editable while the robot runs."),
+      dashboard: z
+        .enum(["panels", "ftcdashboard", "none"])
+        .optional()
+        .describe("Live-tuning system for tunable constants (default: panels, matching install_pedro's Panels)"),
       methods: z.array(z.string()).optional().describe("Action method names to stub, e.g. ['spinIn','spitOut']"),
       testOpMode: z.boolean().optional().describe("Also generate a bench-test TeleOp (default true)"),
       overwrite: z.boolean().optional(),
@@ -337,11 +365,16 @@ const actionSchema = z.object({
     .describe(
       "Group name for mutually-exclusive hold actions on one mechanism (e.g. intake in/out). Members become one if/else-if/else chain with a shared idle, so they can't override each other."
     ),
+  guard: z
+    .string()
+    .optional()
+    .describe("Robot-state condition ANDed with the input so the action only fires when safe/efficient, e.g. '!spindexer.isBusy()'"),
 });
 const automationSchema = z.object({
   name: z.string().describe("camelCase; becomes a stub method + call site"),
   description: z.string().describe("What this automation should do (drives the generated Javadoc/TODO)"),
   input: z.string().optional().describe("Optional gating input; omit for a behavior that runs every loop (e.g. sensor-driven)"),
+  guard: z.string().optional().describe("Robot-state condition ANDed with the trigger, e.g. '!outtakeInProgress'"),
 });
 const slowModeSchema = z.object({
   input: z.string().describe("Gamepad expression, e.g. 'driver.left_trigger > 0.5'"),

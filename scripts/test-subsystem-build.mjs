@@ -25,6 +25,9 @@ async function call(name, args) {
   return text;
 }
 
+// Panels (@Configurable) is needed for dashboard-tunable subsystem constants.
+await call("install_pedro", { projectPath: project });
+
 await call("create_subsystem", {
   projectPath: project,
   name: "RollingIntake",
@@ -35,17 +38,35 @@ await call("create_subsystem", {
   overwrite: true,
 });
 
+// Dependencies for the Spindexer, created first so they can be injected.
+await call("create_subsystem", {
+  projectPath: project,
+  name: "IntakeFlap",
+  group: "intake",
+  servos: [{ name: "flapServo", config: "intakeFlapServo" }],
+  methods: ["on", "off"],
+  overwrite: true,
+});
+
 await call("create_subsystem", {
   projectPath: project,
   name: "Spindexer",
   group: "sorting",
-  description: "Rotating spindexer that sorts balls by color before scoring.",
+  description: "Rotating spindexer that sorts balls by color, with custom motor PID.",
   motors: [{ name: "spindexerMotor", config: "spindexer" }],
   sensors: [
     { name: "colorSensor", config: "spindexer_color", type: "color" },
     { name: "distanceSensor", config: "spindexer_distance", type: "distance" },
   ],
-  methods: ["indexNext", "readColor", "alignToSlot"],
+  dependencies: [{ type: "IntakeFlap", name: "intakeFlap" }],
+  constants: [
+    { name: "Kp", value: "0.009", comment: "proportional gain" },
+    { name: "Ki", value: "0.0" },
+    { name: "Kd", value: "0.0006" },
+    { name: "kStatic", value: "0.0325", comment: "min power to overcome friction" },
+    { name: "SLOT_COUNT", value: "3", javaType: "int", tunable: false },
+  ],
+  methods: ["indexNext", "readColor", "alignToSlot", "isBusy"],
   overwrite: true,
 });
 

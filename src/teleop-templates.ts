@@ -30,6 +30,12 @@ export interface ActionBinding {
    * when none is pressed. Priority follows declaration order.
    */
   exclusiveGroup?: string;
+  /**
+   * Optional robot-state guard ANDed with the input, e.g. "!spindexer.isBusy()".
+   * Lets a binding only fire when it's safe/efficient to (matches how real
+   * teleops gate actions like `!colorScanInProgress && ...`).
+   */
+  guard?: string;
 }
 
 export interface Automation {
@@ -38,6 +44,8 @@ export interface Automation {
   description: string;
   /** Optional gating input; if absent the automation runs every loop (e.g. sensor-driven). */
   input?: string;
+  /** Optional robot-state guard ANDed with the trigger, e.g. "!outtakeInProgress". */
+  guard?: string;
 }
 
 export interface SlowMode {
@@ -57,6 +65,8 @@ export interface SubsystemRef {
   className: string;
   packageName: string;
   field: string;
+  /** Constructor argument expressions (e.g. ["hardwareMap", "intakeFlap"]). */
+  ctorArgs: string[];
 }
 
 export interface TeleOpSpec {
@@ -160,32 +170,40 @@ function edgeFields(spec: TeleOpSpec): string[] {
   return fields;
 }
 
+/** AND an optional robot-state guard onto a condition. */
+function guarded(cond: string, guard?: string): string {
+  return guard && guard.trim() ? `(${guard.trim()}) && (${cond})` : cond;
+}
+
 function actionWiring(a: ActionBinding, controls: string): string {
   const call = (code?: string) => (code ? `${code};` : "");
   const active = call(a.onActive);
   const inactive = call(a.onInactive);
-  const cond = `${controls}.${a.name}(driver, operator)`;
+  const input = `${controls}.${a.name}(driver, operator)`;
   const label = a.label ? `        // ${a.label}\n` : "";
   if (a.mode === "hold") {
+    const cond = guarded(input, a.guard);
     if (a.onInactive) {
       return `${label}        if (${cond}) { ${active} } else { ${inactive} }`;
     }
     return `${label}        if (${cond}) { ${active} }`;
   }
   if (a.mode === "press") {
+    // Track the raw edge; the guard only gates whether the action fires.
     return (
-      `${label}        boolean ${a.name}Now = ${cond};\n` +
-      `        if (${a.name}Now && !${a.name}Prev) { ${active} }\n` +
+      `${label}        boolean ${a.name}Now = ${input};\n` +
+      `        if (${guarded(`${a.name}Now && !${a.name}Prev`, a.guard)}) { ${active} }\n` +
       `        ${a.name}Prev = ${a.name}Now;`
     );
   }
-  // toggle
+  // toggle: flip on the raw edge; guard gates the effect only.
+  const gatedState = guarded(`${a.name}State`, a.guard);
   const elseBlock = a.onInactive ? ` else { ${inactive} }` : "";
   return (
-    `${label}        boolean ${a.name}Now = ${cond};\n` +
+    `${label}        boolean ${a.name}Now = ${input};\n` +
     `        if (${a.name}Now && !${a.name}Prev) ${a.name}State = !${a.name}State;\n` +
     `        ${a.name}Prev = ${a.name}Now;\n` +
-    `        if (${a.name}State) { ${active} }${elseBlock}`
+    `        if (${gatedState}) { ${active} }${elseBlock}`
   );
 }
 
@@ -194,7 +212,8 @@ function exclusiveGroupWiring(groupName: string, members: ActionBinding[], contr
   const branches = members.map((a, i) => {
     const kw = i === 0 ? "if" : "else if";
     const label = a.label ? `${a.label}: ` : "";
-    return `        ${kw} (${controls}.${a.name}(driver, operator)) { ${a.onActive}; } // ${label}${a.name}`;
+    const cond = guarded(`${controls}.${a.name}(driver, operator)`, a.guard);
+    return `        ${kw} (${cond}) { ${a.onActive}; } // ${label}${a.name}`;
   });
   const idle = members.map((m) => m.onInactive).find((c) => c);
   const elseBranch = idle ? `\n        else { ${idle}; }` : "";
@@ -240,11 +259,11 @@ export function buildTeleOp(spec: TeleOpSpec): string {
   const loopTop: string[] = [];
   const telemetry: string[] = [];
 
-  // Subsystems
+  // Subsystems (already ordered so dependencies construct before dependents)
   for (const s of spec.subsystems) {
     if (s.packageName !== spec.packageName) imports.add(`${s.packageName}.${s.className}`);
     fields.push(`    private ${s.className} ${s.field};`);
-    initBody.push(`        ${s.field} = new ${s.className}(hardwareMap);`);
+    initBody.push(`        ${s.field} = new ${s.className}(${s.ctorArgs.join(", ")});`);
   }
 
   // Drive setup
@@ -324,7 +343,11 @@ export function buildTeleOp(spec: TeleOpSpec): string {
   const automationMethods: string[] = [];
   for (const a of spec.automations) {
     if (a.input) {
-      loopAutomations.push(`        if (${controls}.${a.name}(driver, operator)) ${a.name}();`);
+      loopAutomations.push(
+        `        if (${guarded(`${controls}.${a.name}(driver, operator)`, a.guard)}) ${a.name}();`
+      );
+    } else if (a.guard && a.guard.trim()) {
+      loopAutomations.push(`        if (${a.guard.trim()}) ${a.name}();`);
     } else {
       loopAutomations.push(`        ${a.name}(); // runs every loop`);
     }

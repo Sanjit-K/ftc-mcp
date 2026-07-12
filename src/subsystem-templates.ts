@@ -27,6 +27,29 @@ export interface SensorSpec {
   type: SensorType;
 }
 
+/** Another subsystem this one depends on (constructor-injected). */
+export interface DependencySpec {
+  /** Class name of the dependency, e.g. "ColorSensor". */
+  type: string;
+  /** Field/param name, e.g. "colorSensor". */
+  name: string;
+  /** Package of the dependency class (resolved by the IO layer) for the import. */
+  packageName?: string;
+}
+
+/** A named constant. Tunable ones become live-editable dashboard fields. */
+export interface ConstantSpec {
+  name: string;
+  /** Java literal or expression, e.g. "0.59" or "Math.toRadians(180)". */
+  value: string;
+  javaType?: string; // default "double"
+  comment?: string;
+  /** true (default): public static (dashboard-tunable). false: private static final. */
+  tunable?: boolean;
+}
+
+export type Dashboard = "panels" | "ftcdashboard" | "none";
+
 export interface SubsystemSpec {
   packageName: string;
   className: string;
@@ -35,9 +58,21 @@ export interface SubsystemSpec {
   servos: DeviceSpec[];
   crServos: DeviceSpec[];
   sensors: SensorSpec[];
+  dependencies: DependencySpec[];
+  constants: ConstantSpec[];
+  dashboard: Dashboard;
   /** Action method names to stub, e.g. ["spinIn", "spitOut"]. */
   methods: string[];
 }
+
+const DASHBOARD_IMPORT: Record<Exclude<Dashboard, "none">, string> = {
+  panels: "com.bylazar.configurables.annotations.Configurable",
+  ftcdashboard: "com.acmerobotics.dashboard.config.Config",
+};
+const DASHBOARD_ANNOTATION: Record<Exclude<Dashboard, "none">, string> = {
+  panels: "@Configurable",
+  ftcdashboard: "@Config",
+};
 
 const SENSOR_JAVA_TYPE: Record<SensorType, string> = {
   color: "ColorSensor",
@@ -138,6 +173,37 @@ export function generateSubsystemClass(spec: SubsystemSpec): string {
     ctorBody.push(`        ${sensor.name} = hardwareMap.get(${javaType}.class, ${CONST(sensor.name)});`);
   }
 
+  // Dependency subsystems (constructor-injected). Config names stay hardcoded
+  // above, so the constructor only receives sibling subsystems.
+  const depFields: string[] = [];
+  const depParams: string[] = [];
+  const depAssign: string[] = [];
+  for (const d of spec.dependencies) {
+    if (d.packageName && d.packageName !== spec.packageName) {
+      imports.add(`${d.packageName}.${d.type}`);
+    }
+    depFields.push(`    private final ${d.type} ${d.name};`);
+    depParams.push(`${d.type} ${d.name}`);
+    depAssign.push(`        this.${d.name} = ${d.name};`);
+  }
+
+  // User-defined constants (tunable = live-editable via the dashboard).
+  const tunables: string[] = [];
+  let hasTunable = false;
+  for (const c of spec.constants) {
+    const type = c.javaType ?? "double";
+    const comment = c.comment ? ` // ${c.comment}` : "";
+    if (c.tunable === false) {
+      tunables.push(`    private static final ${type} ${c.name} = ${c.value};${comment}`);
+    } else {
+      hasTunable = true;
+      tunables.push(`    public static ${type} ${c.name} = ${c.value};${comment}`);
+    }
+  }
+  if (hasTunable && spec.dashboard !== "none") {
+    imports.add(DASHBOARD_IMPORT[spec.dashboard]);
+  }
+
   const { actions, hasStop } = normalizeMethods(spec.methods);
 
   const methodBlocks: string[] = [];
@@ -160,17 +226,30 @@ export function generateSubsystemClass(spec: SubsystemSpec): string {
   const classDoc = spec.description
     ? `/**\n * ${spec.description.replace(/\n/g, "\n * ")}\n */\n`
     : "";
+  const annotation =
+    hasTunable && spec.dashboard !== "none" ? `${DASHBOARD_ANNOTATION[spec.dashboard]}\n` : "";
+
+  const ctorParams = ["HardwareMap hardwareMap", ...depParams].join(", ");
 
   return (
     `package ${spec.packageName};\n\n` +
     `${importLines}\n\n` +
     classDoc +
+    annotation +
     `public class ${spec.className} {\n\n` +
     (fields.length ? fields.join("\n") + "\n\n" : "") +
-    (constants.length ? constants.join("\n") + "\n\n" : "") +
-    `    // --- Tunable constants (adjust for your robot) ---\n\n` +
-    `    public ${spec.className}(HardwareMap hardwareMap) {\n` +
+    (depFields.length ? depFields.join("\n") + "\n\n" : "") +
+    (constants.length ? "    // Hardware configuration names (must match the Driver Station config)\n" + constants.join("\n") + "\n\n" : "") +
+    (tunables.length
+      ? "    // --- Tunable constants" +
+        (hasTunable && spec.dashboard !== "none" ? " (live-editable via the dashboard)" : "") +
+        " ---\n" +
+        tunables.join("\n") +
+        "\n\n"
+      : "") +
+    `    public ${spec.className}(${ctorParams}) {\n` +
     (ctorBody.length ? ctorBody.join("\n") + "\n" : "") +
+    (depAssign.length ? (ctorBody.length ? "\n" : "") + depAssign.join("\n") + "\n" : "") +
     `    }\n\n` +
     methodBlocks.join("\n\n") +
     "\n}\n" +
@@ -195,6 +274,17 @@ const TEST_BUTTONS = [
 export function generateTestOpMode(spec: SubsystemSpec, group: string): string {
   const { actions } = normalizeMethods(spec.methods);
   const field = spec.className.charAt(0).toLowerCase() + spec.className.slice(1);
+
+  // Construct dependencies first (best-effort; adjust if a dep needs extra args).
+  const depImports = new Set<string>();
+  const depConstruct: string[] = [];
+  for (const d of spec.dependencies) {
+    if (d.packageName && d.packageName !== spec.packageName) depImports.add(`${d.packageName}.${d.type}`);
+    depConstruct.push(`        ${d.type} ${d.name} = new ${d.type}(hardwareMap);`);
+  }
+  const ctorArgs = ["hardwareMap", ...spec.dependencies.map((d) => d.name)].join(", ");
+  const depImportLines = [...depImports].sort().map((i) => `import ${i};`).join("\n");
+
   const bindings: string[] = [];
   actions.slice(0, TEST_BUTTONS.length).forEach((action, i) => {
     const btn = TEST_BUTTONS[i];
@@ -215,7 +305,9 @@ export function generateTestOpMode(spec: SubsystemSpec, group: string): string {
   return (
     `package ${spec.packageName};\n\n` +
     `import com.qualcomm.robotcore.eventloop.opmode.OpMode;\n` +
-    `import com.qualcomm.robotcore.eventloop.opmode.TeleOp;\n\n` +
+    `import com.qualcomm.robotcore.eventloop.opmode.TeleOp;\n` +
+    (depImportLines ? depImportLines + "\n" : "") +
+    `\n` +
     `/*\n` +
     ` * Bench test for the ${spec.className} subsystem. Binds each action to a\n` +
     ` * gamepad1 button so you can exercise the subsystem in isolation on the robot.\n` +
@@ -227,7 +319,8 @@ export function generateTestOpMode(spec: SubsystemSpec, group: string): string {
     `    private ${spec.className} ${field};\n\n` +
     `    @Override\n` +
     `    public void init() {\n` +
-    `        ${field} = new ${spec.className}(hardwareMap);\n` +
+    (depConstruct.length ? depConstruct.join("\n") + "\n" : "") +
+    `        ${field} = new ${spec.className}(${ctorArgs});\n` +
     `    }\n\n` +
     `    @Override\n` +
     `    public void loop() {\n` +
@@ -284,11 +377,26 @@ export function generateSubsystemDoc(
   const fnLines = actions.map((a) => `- \`${a}()\` — TODO: describe`);
   fnLines.push("- `stop()` — cut power to all actuators");
 
+  const depLine = spec.dependencies.length
+    ? `- **Depends on:** ${spec.dependencies.map((d) => `\`${d.type}\``).join(", ")}\n`
+    : "";
+
+  const tuningSection = spec.constants.length
+    ? spec.constants
+        .map(
+          (c) =>
+            `- \`${c.name}\` = ${c.value}${c.comment ? ` — ${c.comment}` : ""}` +
+            `${c.tunable === false ? " (fixed)" : " (dashboard-tunable)"}`
+        )
+        .join("\n") + "\n"
+    : "_TODO: record PID values, RPM setpoints, servo positions, etc. as you tune._\n";
+
   return (
     `# ${spec.className}\n\n` +
     `${spec.description ?? "TODO: describe this subsystem."}\n\n` +
     `- **Package:** \`${spec.packageName}\`\n` +
     `- **Source:** \`${relSourcePath}\`\n` +
+    depLine +
     (relTestPath ? `- **Bench test:** \`${relTestPath}\` (Driver Station: "Test ${spec.className}")\n` : "") +
     `\n## Hardware\n\n` +
     (hw.length
@@ -296,7 +404,7 @@ export function generateSubsystemDoc(
       : "_No hardware declared._\n") +
     `\n> Config names must match the robot configuration on the Driver Station exactly.\n` +
     `\n## Functions\n\n${fnLines.join("\n")}\n` +
-    `\n## Tuning\n\n_TODO: record PID values, RPM setpoints, servo positions, etc. as you tune._\n` +
+    `\n## Tuning\n\n${tuningSection}` +
     `\n## Notes / quirks\n\n_TODO: wiring notes, gotchas, mechanical constraints._\n`
   );
 }

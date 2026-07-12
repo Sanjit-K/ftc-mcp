@@ -61,7 +61,7 @@ claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
 
 | Tool | What it does |
 |---|---|
-| `create_subsystem` | Scaffold a subsystem class (HardwareMap constructor, config-name constants, action methods, `stop()`) + a bench-test TeleOp + a markdown doc |
+| `create_subsystem` | Scaffold a subsystem class (hardcoded config-name constants, action methods, `stop()`) with optional injected subsystem dependencies and dashboard-tunable constants, + a bench-test TeleOp + a markdown doc |
 | `document_subsystem` | Write/update a subsystem's knowledge-base doc (functions, tuning, config names, quirks) |
 | `list_subsystems` / `get_subsystem` | Read the robot's architecture from `docs/` |
 | `create_teleop` | Generate a TeleOp **plus a separate `<Name>Controls.java`** holding only the button bindings, wiring drive + subsystem actions + automations |
@@ -98,6 +98,8 @@ The intended way to build a robot: describe each mechanism to the LLM and let it
 5. A future session runs `list_subsystems` / `get_subsystem` and instantly knows the robot.
 
 Sub-subsystems live under a shared group, e.g. `group: "shooting.turret"` → `teamcode/shooting/turret/`. Calculation-heavy logic goes in `create_calculation` helpers so it stays out of the subsystem and OpMode files.
+
+**Subsystem composition & tuning.** A subsystem can depend on other subsystems — `dependencies: [{type: "ColorSensor"}, {type: "IntakeFlap"}]` injects them into the constructor (config names stay hardcoded, so the constructor only receives siblings). Declare `constants` (PID gains, servo positions, RPM setpoints) and the tunable ones become live-editable dashboard fields: the class is annotated `@Configurable` (Panels, from `install_pedro`) with `public static` fields, so you tune them while the robot runs. Pass `dashboard: "ftcdashboard"` for FTC Dashboard's `@Config`, or `"none"`.
 
 ### Building a TeleOp
 

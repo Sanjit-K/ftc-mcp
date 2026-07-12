@@ -13,6 +13,9 @@ import {
   resolveProject,
 } from "./paths.js";
 import {
+  ConstantSpec,
+  Dashboard,
+  DependencySpec,
   DeviceSpec,
   SensorSpec,
   SubsystemSpec,
@@ -64,6 +67,9 @@ export interface CreateSubsystemArgs {
   servos?: DeviceInput[];
   crServos?: DeviceInput[];
   sensors?: SensorInput[];
+  dependencies?: { type: string; name?: string }[];
+  constants?: ConstantSpec[];
+  dashboard?: Dashboard;
   methods?: string[];
   testOpMode?: boolean;
   overwrite?: boolean;
@@ -83,6 +89,33 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
   validClassName(args.name);
   const packageName = packageForGroup(args.group);
 
+  // Resolve dependency subsystems to their packages for imports.
+  const dependencies: DependencySpec[] = (args.dependencies ?? []).map((d) => {
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(d.type)) {
+      throw new ToolError(`Invalid dependency type "${d.type}" (must be a class name).`);
+    }
+    const field = d.name ?? d.type.charAt(0).toLowerCase() + d.type.slice(1);
+    if (!/^[a-z][A-Za-z0-9_]*$/.test(field)) {
+      throw new ToolError(`Invalid dependency field name "${field}" (camelCase).`);
+    }
+    const pkg = resolveClassPackage(project, d.type);
+    if (!pkg) {
+      throw new ToolError(
+        `Dependency "${d.type}" not found in TeamCode. Create it first with create_subsystem.`
+      );
+    }
+    return { type: d.type, name: field, packageName: pkg };
+  });
+
+  for (const c of args.constants ?? []) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.name)) {
+      throw new ToolError(`Invalid constant name "${c.name}".`);
+    }
+    if (c.value === undefined || `${c.value}`.trim() === "") {
+      throw new ToolError(`Constant "${c.name}" needs a value.`);
+    }
+  }
+
   const spec: SubsystemSpec = {
     packageName,
     className: args.name,
@@ -91,6 +124,9 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
     servos: fillConfigs(args.servos),
     crServos: fillConfigs(args.crServos),
     sensors: fillConfigs(args.sensors) as SensorSpec[],
+    dependencies,
+    constants: args.constants ?? [],
+    dashboard: args.dashboard ?? "panels",
     methods: args.methods ?? [],
   };
 
@@ -127,12 +163,30 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
   const configNames = [...spec.motors, ...spec.servos, ...spec.crServos, ...spec.sensors].map(
     (d) => d.config
   );
+
+  // Panels' @Configurable needs the fullpanels dependency (added by install_pedro).
+  const usesPanels =
+    spec.dashboard === "panels" && spec.constants.some((c) => c.tunable !== false);
+  const pedroInstalled = existsSync(
+    join(project, TEAMCODE_JAVA_SUBDIR, ...DEFAULT_PACKAGE.split("."), "pedroPathing", "Constants.java")
+  );
+  const dashWarning =
+    usesPanels && !pedroInstalled
+      ? `\n\nWARNING: tunable constants use Panels' @Configurable, which needs the fullpanels dependency. ` +
+        `Run install_pedro, or pass dashboard: "ftcdashboard" / "none".`
+      : "";
+
   return (
     `Created ${args.name} subsystem:\n` +
     created.map((c) => `  - ${c}`).join("\n") +
     (configNames.length
       ? `\n\nRobot-configuration names to add on the Driver Station: ${configNames.join(", ")}`
       : "") +
+    (dependencies.length
+      ? `\nConstructor injects: ${dependencies.map((d) => `${d.type} ${d.name}`).join(", ")}`
+      : "") +
+    (spec.constants.length ? `\nConstants: ${spec.constants.map((c) => c.name).join(", ")}` : "") +
+    dashWarning +
     `\n\nNext: fill in the method bodies, then run document_subsystem to capture behavior/tuning, ` +
     `or hardware_manifest to check config names across the robot.`
   );
@@ -291,6 +345,29 @@ export function resolveClassPackage(project: string, className: string): string 
   if (!file) return null;
   const m = readFileSync(file, "utf8").match(/^\s*package\s+([\w.]+)\s*;/m);
   return m ? m[1] : null;
+}
+
+export interface CtorParam {
+  type: string;
+  name: string;
+}
+
+/** Parse a class's public constructor parameter list (best-effort, no generics). */
+export function parseConstructor(project: string, className: string): CtorParam[] | null {
+  const file = findJavaByClassName(project, className);
+  if (!file) return null;
+  const src = readFileSync(file, "utf8");
+  const m = src.match(new RegExp(`public\\s+${className}\\s*\\(([^)]*)\\)`));
+  if (!m) return []; // no explicit constructor -> default (no args)
+  return m[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const parts = p.replace(/\bfinal\b/, "").trim().split(/\s+/);
+      return { type: parts[parts.length - 2], name: parts[parts.length - 1] };
+    })
+    .filter((p) => p.type && p.name);
 }
 
 interface ManifestEntry {

@@ -6,7 +6,7 @@ import {
   ToolError,
   resolveProject,
 } from "./paths.js";
-import { resolveClassPackage } from "./subsystems.js";
+import { parseConstructor, resolveClassPackage } from "./subsystems.js";
 import {
   ActionBinding,
   Automation,
@@ -65,18 +65,49 @@ export function createTeleOp(args: CreateTeleOpArgs): string {
     throw new ToolError(`Invalid package name: ${packageName} (lowercase dot-separated segments).`);
   }
 
-  // Resolve subsystems to their packages so we can import + construct them.
-  const subsystems: SubsystemRef[] = [];
-  for (const name of args.subsystems ?? []) {
+  // Resolve subsystems + their transitive dependencies into a construction plan
+  // (dependencies constructed before the subsystems that need them).
+  const plan: SubsystemRef[] = [];
+  const byType = new Map<string, SubsystemRef>();
+  const inProgress = new Set<string>();
+  const manualArgs: string[] = [];
+
+  const ensure = (name: string): string => {
     if (!/^[A-Z][A-Za-z0-9_]*$/.test(name)) throw new ToolError(`Invalid subsystem name: ${name}`);
+    const existing = byType.get(name);
+    if (existing) return existing.field;
+    if (inProgress.has(name)) {
+      throw new ToolError(`Circular subsystem dependency involving ${name}.`);
+    }
     const pkg = resolveClassPackage(project, name);
     if (!pkg) {
       throw new ToolError(
         `Subsystem "${name}" not found in TeamCode. Create it first with create_subsystem, or check the name (list_subsystems).`
       );
     }
-    subsystems.push({ className: name, packageName: pkg, field: camelField(name) });
-  }
+    inProgress.add(name);
+    const params = parseConstructor(project, name) ?? [];
+    const ctorArgs: string[] = [];
+    for (const p of params) {
+      if (p.type === "HardwareMap") {
+        ctorArgs.push("hardwareMap");
+      } else if (resolveClassPackage(project, p.type)) {
+        ctorArgs.push(ensure(p.type)); // subsystem dependency
+      } else {
+        // Non-subsystem constructor arg (String/primitive) we can't infer.
+        ctorArgs.push(`/* TODO: ${p.type} ${p.name} */ null`);
+        manualArgs.push(`${name}: ${p.type} ${p.name}`);
+      }
+    }
+    const ref: SubsystemRef = { className: name, packageName: pkg, field: camelField(name), ctorArgs };
+    inProgress.delete(name);
+    byType.set(name, ref);
+    plan.push(ref); // pushed after its deps -> correct construction order
+    return ref.field;
+  };
+
+  for (const name of args.subsystems ?? []) ensure(name);
+  const subsystems = plan;
 
   const actions = args.actions ?? [];
   for (const a of actions) {
@@ -146,6 +177,16 @@ export function createTeleOp(args: CreateTeleOpArgs): string {
     `  - ${relative(project, teleopFile)} (behavior & automations)\n` +
     `  - ${relative(project, controlsFile)} (controller bindings — edit here to remap)\n` +
     (map.length ? `\nControl map:\n${map.join("\n")}` : "") +
+    (plan.length > (args.subsystems?.length ?? 0)
+      ? `\n\nAlso constructed dependencies: ${plan
+          .filter((p) => !(args.subsystems ?? []).includes(p.className))
+          .map((p) => p.className)
+          .join(", ")}`
+      : "") +
+    (manualArgs.length
+      ? `\n\nWARNING: these constructors take non-subsystem args this tool can't infer — fill in the ` +
+        `\`/* TODO */ null\` placeholders in ${args.className}.java: ${manualArgs.join("; ")}`
+      : "") +
     (isPedroDrive(drive)
       ? `\n\nNOTE: drive "${drive}" uses Pedro's follower — run install_pedro and tune Constants.java first.`
       : "") +

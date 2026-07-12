@@ -32,14 +32,14 @@ export default function Home() {
       </nav>
 
       <section className="hero shell">
-        <div className="eyebrow"><span className="statusDot" /> Local tools for FTC robot code <b>v0.1</b></div>
+        <div className="eyebrow"><span className="statusDot" /> Local tools for FTC robot code <b>v0.2</b></div>
         <h1>Your AI can<br /><em>build the robot</em> now.</h1>
-        <p className="heroCopy">ftc-mcp gives Claude—or any MCP client—the tools to scaffold subsystems, wire TeleOp, build with Gradle, and deploy to your Control Hub.</p>
+        <p className="heroCopy">ftc-mcp gives Codex, Claude, and other MCP clients the tools to scaffold subsystems, wire TeleOp, build with Gradle, and deploy to your Control Hub.</p>
         <div className="heroActions"><a className="button primary" href="#install">Get started <span>↓</span></a><Link className="button secondary" href="/docs">Read the docs <span>↗</span></Link></div>
         <p className="trust"><span>✓</span> Official FTC SDK <span>✓</span> Pedro Pathing <span>✓</span> Free &amp; open source</p>
 
         <div className="terminal" aria-label="Example ftc-mcp terminal session">
-          <div className="terminalBar"><div className="lights"><i /><i /><i /></div><span>claude — ~/CenterstageRobot</span><span className="terminalMeta">MCP CONNECTED</span></div>
+          <div className="terminalBar"><div className="lights"><i /><i /><i /></div><span>codex — ~/CenterstageRobot</span><span className="terminalMeta">MCP CONNECTED</span></div>
           <div className="terminalBody">
             <div className="line user"><span>›</span><p>Make an intake subsystem with one motor, <code>spinIn</code> and <code>spinOut</code>, plus a bench test.</p></div>
             <div className="line dim"><span>●</span><p>I’ll scaffold the subsystem, wire its hardware config, then run a build.</p></div>
@@ -57,7 +57,7 @@ export default function Home() {
       </section>
 
       <section className="features shell" id="features">
-        <div className="sectionHead"><div><p className="sectionKicker">32 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
+        <div className="sectionHead"><div><p className="sectionKicker">34 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
         <div className="featureGrid">{features.map((f) => <article className="featureCard" key={f.id}><div className="featureTop"><span>{f.id}</span><i>↗</i></div><p className="featureLabel">{f.label}</p><h3>{f.title}</h3><p>{f.body}</p><code>{f.tag}</code></article>)}</div>
       </section>
 
@@ -73,7 +73,7 @@ export default function Home() {
         <div className="diffCard"><div className="diffHead"><span>Controls.java</span><small>GENERATED · HUMAN-EDITABLE</small></div><pre><span className="comment">// Driver bindings stay out of robot logic</span>{`\n`}<span className="purple">public void</span> <span className="blue">bind</span>(GamepadEx driver) {`{`}{`\n`}  driver.<span className="blue">getGamepadButton</span>(A){`\n`}    .<span className="blue">whenPressed</span>(intake::<span className="blue">spinIn</span>){`\n`}    .<span className="blue">whenReleased</span>(intake::<span className="blue">stop</span>);{`\n`}{`}`}</pre></div>
       </section>
 
-      <section className="install" id="install"><div className="shell installInner"><div><p className="sectionKicker">START BUILDING</p><h2>Two commands.<br />That’s the setup.</h2><p>Works inside an existing FtcRobotController project. Node 18+ required.</p></div><div className="installCard"><div className="tabs"><b>Claude Code</b><span>Claude Desktop</span><span>Other MCP clients</span></div><div className="command"><span>$</span><code>claude mcp add ftc -- npx -y ftc-mcp</code></div><div className="command"><span>$</span><code>npx ftc-mcp setup</code></div><div className="requirements"><span>Requires</span><b>Node 18+</b><b>Android Studio</b><b>adb for deploy</b></div></div></div></section>
+      <section className="install" id="install"><div className="shell installInner"><div><p className="sectionKicker">START BUILDING</p><h2>Two commands.<br />That’s the setup.</h2><p>Works inside an existing FtcRobotController project. Node 18+ required.</p></div><div className="installCard"><div className="tabs"><b>Codex</b><span>Claude Code</span><span>Other MCP clients</span></div><div className="command"><span>$</span><code>codex mcp add ftc -- npx -y ftc-mcp</code></div><div className="command"><span>$</span><code>npx ftc-mcp setup</code></div><div className="requirements"><span>Requires</span><b>Node 18+</b><b>Android Studio</b><b>adb for deploy</b></div></div></div></section>
 
       <section className="safety shell"><div className="shield">✓</div><div><p className="sectionKicker">YOU’RE IN CONTROL</p><h2>Review the diff.<br />Then run the robot.</h2></div><p>ftc-mcp proposes and runs local tools. It won’t overwrite existing files by default, and nothing deploys to your Control Hub unless you ask.</p></section>
 

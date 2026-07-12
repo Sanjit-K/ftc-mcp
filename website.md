@@ -24,7 +24,7 @@ Optional later: `/blog` (build logs, release notes), `/showcase` (teams using it
 
 ### 1. Hero
 - **Headline:** "Your AI can build the robot now." (or: "AI that writes, wires, and deploys FTC code.")
-- **Subhead:** "ftc-mcp gives Claude (or any MCP client) the tools to scaffold subsystems, wire TeleOp, build with Gradle, and deploy to your Control Hub — the whole loop, from prompt to robot."
+- **Subhead:** "ftc-mcp gives Codex, Claude, and other MCP clients the tools to scaffold subsystems, wire TeleOp, build with Gradle, and deploy to your Control Hub — the whole loop, from prompt to robot."
 - **Primary CTA:** `Get started` → jumps to install. **Secondary:** `View on GitHub`.
 - **Hero visual:** a short looping terminal/asciinema clip: a person types *"make an intake subsystem with one motor, spinIn and spinOut, plus a bench test"* and files appear + a green `BUILD SUCCESSFUL`. Motion sells this better than a screenshot.
 - Trust line under the CTA: "Works with the official FtcRobotController SDK and Pedro Pathing. Free & open source (MIT)."
@@ -57,10 +57,10 @@ Use the **reconstruction case study** — it's the credibility anchor:
 ### 6. Install (make it copy-paste obvious)
 Two commands, big monospace block with a copy button:
 ```
-claude mcp add ftc -- npx -y ftc-mcp
+codex mcp add ftc -- npx -y ftc-mcp
 npx ftc-mcp setup
 ```
-Tabs for **Claude Code** / **Claude Desktop** / **Other MCP clients**. Requirements line:
+Tabs for **Codex** / **Claude Code** / **Other MCP clients**. Requirements line:
 Node 18+, Android Studio (for building), adb (for deploying).
 
 ### 7. Safety / "who's in control"
@@ -93,6 +93,7 @@ report issues. Credit FTC SDK and Pedro Pathing.
   - Signature mismatch on deploy (`adb uninstall …`).
   - Panels `@Configurable` needs `install_pedro`.
 - **Config** — env vars (`FTC_PROJECT_DIR`, `FTC_MCP_REFS`, `ADB_PATH`).
+- **Robot + internet** — macOS and Windows dual-network setup using Control Hub Wi-Fi plus phone tethering, with route diagnostics and the two MCP networking tools.
 
 ---
 

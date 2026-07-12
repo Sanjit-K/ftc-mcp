@@ -1,12 +1,24 @@
 # ftc-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that lets AI agents (Claude Code, Claude Desktop, or any MCP client) work on **FTC robots**: search official SDK samples and Pedro Pathing docs, scaffold OpModes, build TeamCode with Gradle, deploy to a REV Control Hub over WiFi, and read robot logs — the full code → robot → debug loop.
+An [MCP](https://modelcontextprotocol.io) server that lets AI agents (Codex, Claude Code, Claude Desktop, or any MCP client) work on **FTC robots**: search official SDK samples and Pedro Pathing docs, scaffold OpModes, build TeamCode with Gradle, deploy to a REV Control Hub over WiFi, and read robot logs — the full code → robot → debug loop.
 
 ## Install
 
 Requirements: Node 18+, `git`, `adb` (Android platform-tools), and the Android SDK + JDK 17+ if you want to build (an Android Studio install provides both).
 
-### Claude Code (recommended)
+### Codex
+
+```bash
+# Register the server (available in every project)
+codex mcp add ftc -- npx -y ftc-mcp
+
+# Fetch the reference material the knowledge tools read (one time)
+npx ftc-mcp setup
+```
+
+Start a new Codex task and ask it to “list the FTC sample OpModes” to confirm the server is live.
+
+### Claude Code
 
 ```bash
 # Register the server (available in every project)
@@ -16,7 +28,7 @@ claude mcp add ftc -- npx -y ftc-mcp
 npx ftc-mcp setup
 ```
 
-That's it — start a new session and ask Claude to "list the FTC sample OpModes" to confirm it's live.
+Start a new Claude session and ask it to “list the FTC sample OpModes” to confirm it is live.
 
 ### Claude Desktop / other MCP clients
 
@@ -47,6 +59,41 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 > **Reference material:** the knowledge tools (`list_samples`, `search_docs`, …) read the official
 > FtcRobotController samples and Pedro Pathing docs. `ftc-mcp setup` clones them into `~/.ftc-mcp/refs`
 > (override with `FTC_MCP_REFS`). The project/robot tools work without this step.
+
+## Keep internet and robot Wi-Fi connected
+
+The Control Hub access point normally has no internet. The cheapest field-friendly setup is to keep the computer’s **Wi-Fi on the Control Hub** and give it internet through a **phone tether** on a second network interface. The operating system routes `192.168.43.1` over Wi-Fi and normal internet traffic over the tether, so Codex or Claude stays online while `adb` reaches the robot.
+
+Call `dual_network_guide` for platform-specific setup or `network_diagnostics` to test both paths. This is for development and pits only; disconnect programming computers and auxiliary wireless equipment before a match and follow the current FTC competition manual.
+
+### macOS
+
+1. Join the Control Hub Wi-Fi on the Mac.
+2. Connect a phone by USB, enable Personal Hotspot, and approve Trust/Allow prompts. Bluetooth tethering also works, but is slower and less reliable.
+3. Verify that the Control Hub and internet use different routes:
+
+```bash
+route -n get 192.168.43.1
+route -n get default
+nc -vz 192.168.43.1 5555
+nc -vz api.openai.com 443
+adb connect 192.168.43.1:5555
+```
+
+### Windows
+
+1. Join the Control Hub Wi-Fi on the PC.
+2. Connect a phone by USB and enable USB tethering or Personal Hotspot. For an iPhone, install Apple Devices or iTunes so Windows has the Apple USB network adapter.
+3. Check both routes in PowerShell:
+
+```powershell
+Test-NetConnection 192.168.43.1 -Port 5555
+Test-NetConnection api.openai.com -Port 443
+Get-NetIPInterface -AddressFamily IPv4 | Sort-Object InterfaceMetric
+adb connect 192.168.43.1:5555
+```
+
+If robot ADB works but the AI loses internet, make the tether adapter the preferred default route by lowering its interface metric. Do not bridge or modify the Control Hub network. If a USB phone tether is still too clunky, use Bluetooth tethering or a small travel router in Wi-Fi-client mode connected to the laptop by a short Ethernet adapter.
 
 ## Tools
 
@@ -99,6 +146,8 @@ Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restor
 
 | Tool | What it does |
 |---|---|
+| `dual_network_guide` | Generate exact macOS or Windows steps for keeping internet and Control Hub Wi-Fi active at the same time using USB tethering, Bluetooth tethering, or a travel-router client bridge |
+| `network_diagnostics` | Probe the robot ADB port and internet path concurrently, list active IPv4 interfaces, and recommend the next routing fix |
 | `adb_devices` / `adb_connect` | Find / connect to the robot (Control Hub default: `192.168.43.1:5555`) |
 | `robot_status` | Read device identity, Android/RC app versions, battery service, and storage health |
 | `restart_robot_controller` | Restart the RC app without rebuilding or reinstalling code |

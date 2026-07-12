@@ -1,7 +1,7 @@
 {
   "name": "ftc-mcp",
   "version": "0.2.0",
-  "description": "MCP server that lets AI agents build, deploy, and debug FTC robot code (FtcRobotController SDK + Pedro Pathing)",
+  "description": "MCP server for Codex, Claude, and other AI agents to build, deploy, and debug FTC robot code",
   "type": "module",
   "bin": {
     "ftc-mcp": "dist/index.js"

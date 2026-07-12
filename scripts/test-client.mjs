@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { createServer } from "node:net";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -62,14 +63,30 @@ const transport = new StdioClientTransport({
   env: { ...process.env, ADB_PATH: fakeAdb, FTC_MCP_HOME: fakeMcpHome },
 });
 const client = new Client({ name: "test-client", version: "0.0.1" });
+const probeServer = createServer((socket) => socket.end());
+await new Promise((resolve, reject) => {
+  probeServer.once("error", reject);
+  probeServer.listen(0, "127.0.0.1", resolve);
+});
+const probeAddress = probeServer.address();
+const probePort = typeof probeAddress === "object" && probeAddress ? probeAddress.port : 0;
 await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 32 tools (got ${tools.tools.length})`, tools.tools.length === 32);
+  check(`lists 34 tools (got ${tools.tools.length})`, tools.tools.length === 34);
+
+  let r = await call(client, "dual_network_guide", { platform: "macos", method: "usb-tether" });
+  check("dual_network_guide gives macOS routes and ADB target", !r.isError && r.text.includes("route -n get") && r.text.includes("adb connect 192.168.43.1:5555"), r.text);
+
+  r = await call(client, "dual_network_guide", { platform: "windows", method: "usb-tether" });
+  check("dual_network_guide gives Windows route checks", !r.isError && r.text.includes("Test-NetConnection") && r.text.includes("Apple Devices"), r.text);
+
+  r = await call(client, "network_diagnostics", { robotHost: "127.0.0.1", robotPort: probePort, checkInternet: false, timeoutMs: 1000 });
+  check("network_diagnostics recognizes a reachable robot path", !r.isError && r.text.includes("PASS") && r.text.includes("reachable"), r.text);
 
   // Knowledge
-  let r = await call(client, "list_samples", { category: "Sensor" });
+  r = await call(client, "list_samples", { category: "Sensor" });
   check("list_samples(Sensor)", !r.isError && r.text.includes("SensorIMUOrthogonal"), r.text.slice(0, 200));
 
   r = await call(client, "get_sample", { name: "BasicOmniOpMode_Linear" });
@@ -597,6 +614,7 @@ try {
   rmSync(multiDeviceFlag, { force: true });
 } finally {
   await client.close();
+  await new Promise((resolve) => probeServer.close(resolve));
   rmSync(fakeProject, { recursive: true, force: true });
 }
 

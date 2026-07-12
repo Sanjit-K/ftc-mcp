@@ -36,6 +36,7 @@ import { referenceStatus, runSetup, updateReferences } from "./setup.js";
 import { inspectProject } from "./diagnostics.js";
 import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
+import { dualNetworkGuide, networkDiagnostics } from "./network.js";
 
 const VERSION = "0.2.0";
 
@@ -66,7 +67,8 @@ if (cliArg === "--help" || cliArg === "-h") {
       `  ftc-mcp update     Fast-forward clean reference checkouts\n` +
       `  ftc-mcp doctor     Check project, build, docs, and environment readiness\n` +
       `  ftc-mcp --version  Print version\n\n` +
-      `Add to Claude Code:  claude mcp add ftc -- npx -y ftc-mcp\n` +
+      `Add to Codex:         codex mcp add ftc -- npx -y ftc-mcp\n` +
+      `Add to Claude Code:   claude mcp add ftc -- npx -y ftc-mcp\n` +
       `Then run once:        npx ftc-mcp setup`
   );
   process.exit(0);
@@ -560,6 +562,39 @@ server.registerTool(
 );
 
 // ---------- Robot ----------
+
+server.registerTool(
+  "dual_network_guide",
+  {
+    title: "Set up internet plus robot Wi-Fi",
+    description:
+      "Return Mac or Windows instructions for keeping cloud-AI internet access while Wi-Fi stays connected to the Control Hub. Covers USB phone tethering, Bluetooth tethering, and Wi-Fi client bridges with platform-specific route checks.",
+    inputSchema: {
+      platform: z.enum(["macos", "windows"]).optional().describe("Defaults to the MCP host operating system"),
+      method: z.enum(["usb-tether", "bluetooth-tether", "wifi-client-bridge"]).optional().describe("Internet connection method; default USB tether"),
+      robotHost: z.string().optional().describe("Control Hub/tunnel host; default 192.168.43.1"),
+      robotPort: z.number().int().min(1).max(65535).optional().describe("ADB TCP port; default 5555"),
+    },
+  },
+  guard(async (args: Parameters<typeof dualNetworkGuide>[0]) => dualNetworkGuide(args))
+);
+
+server.registerTool(
+  "network_diagnostics",
+  {
+    title: "Verify internet and robot routes",
+    description:
+      "Actively test whether the MCP host can reach the Control Hub ADB port and an internet HTTPS endpoint at the same time, list active IPv4 interfaces, and recommend the next networking fix.",
+    inputSchema: {
+      robotHost: z.string().optional().describe("Control Hub/tunnel host; default 192.168.43.1"),
+      robotPort: z.number().int().min(1).max(65535).optional().describe("ADB TCP port; default 5555"),
+      checkInternet: z.boolean().optional().describe("Also probe an internet HTTPS endpoint; default true"),
+      internetHost: z.string().optional().describe("Internet host to probe on port 443; default api.openai.com"),
+      timeoutMs: z.number().int().min(250).max(10000).optional().describe("Per-probe timeout; default 3000ms"),
+    },
+  },
+  guard(async (args: Parameters<typeof networkDiagnostics>[0]) => networkDiagnostics(args))
+);
 
 server.registerTool(
   "adb_devices",

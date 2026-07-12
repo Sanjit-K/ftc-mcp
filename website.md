@@ -93,7 +93,7 @@ report issues. Credit FTC SDK and Pedro Pathing.
   - Signature mismatch on deploy (`adb uninstall …`).
   - Panels `@Configurable` needs `install_pedro`.
 - **Config** — env vars (`FTC_PROJECT_DIR`, `FTC_MCP_REFS`, `ADB_PATH`).
-- **Automatic Wi-Fi deployment** — build while online, switch macOS or Windows to a saved Control Hub network, deploy locally, restore the original Wi-Fi, and read the saved result after the AI reconnects.
+- **Deployment choices** — use direct USB-C for a connected ADB device, or build while online and automatically switch macOS or Windows to a saved Control Hub network before restoring internet Wi-Fi.
 
 ---
 

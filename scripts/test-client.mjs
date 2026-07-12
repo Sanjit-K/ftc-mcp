@@ -66,9 +66,15 @@ await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 34 tools (got ${tools.tools.length})`, tools.tools.length === 34);
+  check(`lists 35 tools (got ${tools.tools.length})`, tools.tools.length === 35);
 
-  let r = await call(client, "wifi_deploy_start", { robotSsid: "FTC-TEST", projectPath: fakeProject, platform: "windows", dryRun: true });
+  let r = await call(client, "deploy_robot", { connection: "usb", projectPath: fakeProject, dryRun: true });
+  check("deploy_robot previews direct USB deployment", !r.isError && r.text.includes("USB deployment preview") && r.text.includes("adb_devices"), r.text);
+
+  r = await call(client, "deploy_robot", { connection: "wifi-switch", robotSsid: "FTC-TEST", projectPath: fakeProject, dryRun: true });
+  check("deploy_robot previews automatic Wi-Fi switching", !r.isError && r.text.includes("Wi-Fi deployment preview") && r.text.includes("FTC-TEST"), r.text);
+
+  r = await call(client, "wifi_deploy_start", { robotSsid: "FTC-TEST", projectPath: fakeProject, platform: "windows", dryRun: true });
   check("wifi_deploy_start previews Windows switch without building or disconnecting", !r.isError && r.text.includes("no build, network switch, or deployment") && r.text.includes("FTC-TEST") && r.text.includes("192.168.43.1:5555"), r.text);
 
   r = await call(client, "wifi_deploy_status", {});
@@ -567,6 +573,13 @@ try {
     "build_and_deploy creates fresh APK and installs to selected device",
     !r.isError && existsSync(join(fakeProject, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")) &&
       r.text.includes("BUILD SUCCESSFUL") && r.text.includes("control-hub-1"),
+    r.text
+  );
+
+  r = await call(client, "deploy_robot", { connection: "usb", projectPath: fakeProject });
+  check(
+    "deploy_robot USB mode builds and installs on the attached adb device",
+    !r.isError && r.text.includes("BUILD SUCCESSFUL") && r.text.includes("control-hub-1"),
     r.text
   );
 

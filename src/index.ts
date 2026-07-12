@@ -568,6 +568,55 @@ server.registerTool(
 // ---------- Robot ----------
 
 server.registerTool(
+  "deploy_robot",
+  {
+    title: "Deploy by USB or automatic Wi-Fi",
+    description:
+      "Preferred high-level deployment entry point. With connection usb, build TeamCode and install it on a Control Hub or Robot Controller already visible to adb over a physical USB cable. With connection wifi-switch, build while online, then queue the local saved-network switch, ADB install, Robot Controller restart, and original-Wi-Fi restoration workflow.",
+    inputSchema: {
+      connection: z.enum(["usb", "wifi-switch"]).describe("Use usb for a physically connected adb device, or wifi-switch to temporarily join a saved Control Hub network"),
+      projectPath: projectPathArg,
+      serial: z.string().optional().describe("USB adb device serial; useful when multiple devices are attached"),
+      robotSsid: z.string().optional().describe("Required for wifi-switch: saved Control Hub Wi-Fi network name"),
+      homeSsid: z.string().optional().describe("wifi-switch internet network to restore; defaults to the current SSID"),
+      robotHost: z.string().optional().describe("wifi-switch Control Hub host; default 192.168.43.1"),
+      robotPort: z.number().int().min(1).max(65535).optional().describe("wifi-switch ADB port; default 5555"),
+      delaySeconds: z.number().int().min(5).max(30).optional().describe("wifi-switch delay before disconnecting; default 10 seconds"),
+      clean: z.boolean().optional().describe("Run a clean build before deployment"),
+      timeoutSeconds: z.number().int().min(30).max(1800).optional().describe("Gradle build timeout; default 600 seconds"),
+      stacktrace: z.boolean().optional().describe("Return extended Gradle failure context"),
+      dryRun: z.boolean().optional().describe("Preview the selected deployment path without building, switching networks, or installing"),
+    },
+  },
+  guard(async (args: {
+    connection: "usb" | "wifi-switch"; projectPath?: string; serial?: string; robotSsid?: string;
+    homeSsid?: string; robotHost?: string; robotPort?: number; delaySeconds?: number;
+    clean?: boolean; timeoutSeconds?: number; stacktrace?: boolean; dryRun?: boolean;
+  }) => {
+    if (args.connection === "usb") {
+      if (args.dryRun) {
+        return [
+          "USB deployment preview — no build or installation performed.",
+          `Project: ${args.projectPath ?? "$FTC_PROJECT_DIR or the default ftc-mcp workspace"}`,
+          `Device: ${args.serial ?? "the only device returned by adb_devices"}`,
+          "Plan: verify the USB adb device, build :TeamCode:assembleDebug, install the fresh APK, and restart Robot Controller.",
+        ].join("\n");
+      }
+      return buildAndDeploy(args.projectPath, args.serial, {
+        clean: args.clean, timeoutSeconds: args.timeoutSeconds, stacktrace: args.stacktrace,
+      });
+    }
+    if (!args.robotSsid?.trim()) throw new ToolError("robotSsid is required when connection is wifi-switch.");
+    return startWifiDeploy({
+      robotSsid: args.robotSsid, homeSsid: args.homeSsid, projectPath: args.projectPath,
+      robotHost: args.robotHost, robotPort: args.robotPort, delaySeconds: args.delaySeconds,
+      clean: args.clean, timeoutSeconds: args.timeoutSeconds, stacktrace: args.stacktrace,
+      dryRun: args.dryRun,
+    });
+  })
+);
+
+server.registerTool(
   "wifi_deploy_start",
   {
     title: "Build, switch Wi-Fi, and deploy",

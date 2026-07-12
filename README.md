@@ -60,7 +60,21 @@ Opening this directory in Claude Code picks up [.mcp.json](.mcp.json) automatica
 > FtcRobotController samples and Pedro Pathing docs. `ftc-mcp setup` clones them into `~/.ftc-mcp/refs`
 > (override with `FTC_MCP_REFS`). The project/robot tools work without this step.
 
-## Deploy by switching Wi-Fi automatically
+## Choose how to deploy
+
+Use `deploy_robot` as the normal high-level deployment tool. It supports two connection methods.
+
+### Option 1: direct USB-C
+
+Use this when the programming computer is near the robot. Connect the Control Hub or Robot Controller phone by USB, approve any device prompt, and verify it appears in `adb_devices`. Then ask:
+
+```text
+deploy_robot(connection: "usb")
+```
+
+ftc-mcp builds a fresh APK, installs it on the attached ADB device, and restarts Robot Controller. If more than one Android device is attached, pass the `serial` shown by `adb_devices`. Internet stays connected throughout the deployment.
+
+### Option 2: automatic Wi-Fi switching
 
 No phone tether or extra router is required. ftc-mcp can build while the computer is on internet Wi-Fi, return a job ID to Codex or Claude, then run the network-sensitive part as a local background job:
 
@@ -73,7 +87,7 @@ No phone tether or extra router is required. ftc-mcp can build while the compute
 Before the first automatic deployment, manually join the Control Hub once so macOS or Windows saves its SSID and password. Return to internet Wi-Fi, then ask the AI to call:
 
 ```text
-wifi_deploy_start(robotSsid: "YOUR-CONTROL-HUB-SSID")
+deploy_robot(connection: "wifi-switch", robotSsid: "YOUR-CONTROL-HUB-SSID")
 ```
 
 The tool builds before disconnecting and waits 10 seconds before changing networks, giving the MCP response time to reach the AI. The AI connection may pause for roughly 20–60 seconds. Once it returns, call `wifi_deploy_status` with the returned job ID—or omit the ID to read the latest job.
@@ -133,7 +147,8 @@ Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restor
 
 | Tool | What it does |
 |---|---|
-| `wifi_deploy_start` | Build while online, then launch a local macOS/Windows job that switches to saved Control Hub Wi-Fi, deploys through ADB, restarts Robot Controller, and restores the original Wi-Fi |
+| `deploy_robot` | Preferred deployment tool: choose direct USB for an attached ADB device or automatic Wi-Fi switching for a saved Control Hub network |
+| `wifi_deploy_start` | Lower-level Wi-Fi path: build while online, then launch a local macOS/Windows job that switches networks, deploys, and restores the original Wi-Fi |
 | `wifi_deploy_status` | Read the latest or selected background deployment state and its complete switch/deploy/recovery timeline after internet reconnects |
 | `adb_devices` / `adb_connect` | Find / connect to the robot (Control Hub default: `192.168.43.1:5555`) |
 | `robot_status` | Read device identity, Android/RC app versions, battery service, and storage health |
@@ -148,7 +163,7 @@ Use `list_backups` to find a snapshot and `restore_backup` to inspect it. Restor
 
 1. `search_docs("mecanum field centric")` / `get_sample(...)` → find reference code
 2. `create_opmode(className: "CompTeleOp", template: "mecanum-teleop")`
-3. `wifi_deploy_start(robotSsid: "YOUR-CONTROL-HUB-SSID")` → build online, switch locally, deploy, and switch back
+3. `deploy_robot(connection: "usb")` nearby, or `deploy_robot(connection: "wifi-switch", robotSsid: "YOUR-CONTROL-HUB-SSID")` wirelessly
 4. Fix any compiler errors returned before a background Wi-Fi switch begins
 5. Driver tests the OpMode → reconnect with `adb_connect` when needed, then use `robot_logs(filter: "CompTeleOp")`
 

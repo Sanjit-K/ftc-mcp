@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+const assetPrefix = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 const toolGroups = [
   {
     name: "Knowledge",
@@ -60,7 +62,7 @@ const toolGroups = [
 
 export default function Docs() {
   return <main className="docsPage">
-    <nav className="nav shell"><Link href="/" className="brand"><span className="brandMark">F</span><span>FTC Toolchain</span><small>/ docs</small></Link><div className="navLinks"><Link href="/#features">Features</Link><Link href="/">Home</Link></div><a className="navGit" href="https://github.com/Sanjit-K/ftc-toolchain">GitHub ↗</a></nav>
+    <nav className="nav shell"><Link href="/" className="brand"><img className="brandMark" src={`${assetPrefix}/logo.svg`} alt="" /><span>FTC Toolchain</span><small>/ docs</small></Link><div className="navLinks"><Link href="/#features">Features</Link><Link href="/">Home</Link></div><a className="navGit" href="https://github.com/Sanjit-K/ftc-toolchain">GitHub ↗</a></nav>
     <div className="docsLayout shell">
       <aside><b>GET STARTED</b><a href="#quickstart" className="active">Quickstart</a><a href="#first-build">First build</a><b>CONCEPTS</b><a href="#tools">Tool reference</a><a href="#bindings">Bindings</a><a href="#knowledge">Robot knowledge</a><b>OPERATIONS</b><a href="#networking">Robot + internet</a><a href="#troubleshooting">Troubleshooting</a><a href="#config">Configuration</a></aside>
       <article className="docsContent">

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "FTC Toolchain — AI tools for FTC robot code",
   description: "Give your AI the tools to scaffold, build, deploy, and debug FTC robot code.",
-  icons: { icon: `${basePath}/favicon.svg`, shortcut: `${basePath}/favicon.svg` },
+  icons: { icon: `${basePath}/logo.svg`, shortcut: `${basePath}/logo.svg` },
   openGraph: {
     title: "FTC Toolchain — Your AI can build the robot now.",
     description: "Scaffold, build, and deploy FTC robot code with your MCP-compatible AI.",

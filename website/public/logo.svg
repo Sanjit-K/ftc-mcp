@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">FTC Toolchain</title>
+  <desc id="desc">Code brackets surrounding a connected toolchain</desc>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#ff5b1a"/>
+  <path d="M22 17 10 32l12 15M42 17l12 15-12 15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m26 26 12 12" fill="none" stroke="#10100f" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="26" cy="26" r="5" fill="#10100f" stroke="#fff" stroke-width="2.5"/>
+  <circle cx="38" cy="38" r="5" fill="#10100f" stroke="#fff" stroke-width="2.5"/>
+</svg>

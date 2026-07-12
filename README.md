@@ -1,5 +1,7 @@
 # FTC Toolchain
 
+<img src="website/public/logo.svg" alt="FTC Toolchain logo" width="72" height="72" />
+
 An [MCP](https://modelcontextprotocol.io) server that lets AI agents (Codex, Claude Code, Claude Desktop, or any MCP client) work on **FTC robots**: search official SDK samples and Pedro Pathing docs, scaffold OpModes, build TeamCode with Gradle, deploy to a REV Control Hub over WiFi, and read robot logs — the full code → robot → debug loop.
 
 ## Install

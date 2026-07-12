@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+const assetPrefix = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 const features = [
   { id: "01", label: "Knowledge", title: "Real APIs. Real examples.", body: "Searches official FTC samples and Pedro Pathing docs, so your AI cites working code instead of inventing methods.", tag: "search_knowledge" },
   { id: "02", label: "Scaffold", title: "Clean code, wired up.", body: "Creates one class per mechanism, injects dependencies, and keeps driver bindings in a separate, editable file.", tag: "create_subsystem" },
@@ -27,7 +29,7 @@ export default function Home() {
   return (
     <main>
       <nav className="nav shell">
-        <Link href="/" className="brand" aria-label="FTC Toolchain home"><span className="brandMark">F</span><span>FTC Toolchain</span></Link>
+        <Link href="/" className="brand" aria-label="FTC Toolchain home"><img className="brandMark" src={`${assetPrefix}/logo.svg`} alt="" /><span>FTC Toolchain</span></Link>
         <div className="navLinks"><a href="#features">Features</a><a href="#proof">Proof</a><Link href="/docs">Docs</Link></div>
         <a className="navGit" href="https://github.com/Sanjit-K/ftc-toolchain" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
       </nav>
@@ -80,7 +82,7 @@ export default function Home() {
 
       <section className="faq shell"><p className="sectionKicker">FAQ</p><h2>The practical questions.</h2><div className="faqGrid">{faqs.map(([q,a]) => <details key={q}><summary>{q}<span>+</span></summary><p>{a}</p></details>)}</div></section>
 
-      <footer><div className="shell footerInner"><div><Link href="/" className="brand"><span className="brandMark">F</span><span>FTC Toolchain</span></Link><p>Tools that help AI build FTC robot code.</p></div><div className="footerLinks"><div><b>PROJECT</b><Link href="/docs">Docs</Link><a href="https://github.com/Sanjit-K/ftc-toolchain">GitHub</a><a href="https://npmjs.com/package/ftc-toolchain">npm</a></div><div><b>LEGAL</b><a href="https://opensource.org/license/mit">MIT License</a><a href="https://github.com/Sanjit-K/ftc-toolchain/issues">Report an issue</a></div></div></div><div className="shell finePrint"><span>© 2026 FTC Toolchain</span><span>Not affiliated with or endorsed by FIRST®.</span></div></footer>
+      <footer><div className="shell footerInner"><div><Link href="/" className="brand"><img className="brandMark" src={`${assetPrefix}/logo.svg`} alt="" /><span>FTC Toolchain</span></Link><p>Tools that help AI build FTC robot code.</p></div><div className="footerLinks"><div><b>PROJECT</b><Link href="/docs">Docs</Link><a href="https://github.com/Sanjit-K/ftc-toolchain">GitHub</a><a href="https://npmjs.com/package/ftc-toolchain">npm</a></div><div><b>LEGAL</b><a href="https://opensource.org/license/mit">MIT License</a><a href="https://github.com/Sanjit-K/ftc-toolchain/issues">Report an issue</a></div></div></div><div className="shell finePrint"><span>© 2026 FTC Toolchain</span><span>Not affiliated with or endorsed by FIRST®.</span></div></footer>
     </main>
   );
 }

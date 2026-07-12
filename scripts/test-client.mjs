@@ -43,7 +43,7 @@ await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 13 tools (got ${tools.tools.length})`, tools.tools.length === 13);
+  check(`lists 19 tools (got ${tools.tools.length})`, tools.tools.length === 19);
 
   // Knowledge
   let r = await call(client, "list_samples", { category: "Sensor" });
@@ -127,6 +127,83 @@ try {
     template: "linear-teleop",
   });
   check("bad projectPath -> isError with hint", r.isError && r.text.includes("create_project"));
+
+  // Subsystem architecture layer
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "RollingIntake",
+    group: "intake",
+    description: "Rolling intake that grabs balls off the floor.",
+    motors: [{ name: "intakeMotor", config: "intake" }],
+    methods: ["spinIn", "spitOut"],
+  });
+  const subPath = join(
+    fakeProject,
+    "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/intake/RollingIntake.java"
+  );
+  const testPath = join(
+    fakeProject,
+    "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/intake/TestRollingIntake.java"
+  );
+  const docPath = join(fakeProject, "docs/subsystems/RollingIntake.md");
+  const indexPath = join(fakeProject, "docs/ROBOT.md");
+  check("create_subsystem writes class+test+doc+index", !r.isError && existsSync(subPath) && existsSync(testPath) && existsSync(docPath) && existsSync(indexPath), r.text);
+  const subSrc = existsSync(subPath) ? readFileSync(subPath, "utf8") : "";
+  check(
+    "subsystem class shape",
+    subSrc.includes("package org.firstinspires.ftc.teamcode.intake;") &&
+      subSrc.includes('public static final String INTAKE_MOTOR_NAME = "intake";') &&
+      subSrc.includes("public RollingIntake(HardwareMap hardwareMap)") &&
+      subSrc.includes("public void spinIn()") &&
+      subSrc.includes("public void stop()") &&
+      subSrc.includes("intakeMotor.setPower(0);"),
+    subSrc.slice(0, 400)
+  );
+  const testSrc = existsSync(testPath) ? readFileSync(testPath, "utf8") : "";
+  check(
+    "test opmode binds methods to buttons",
+    testSrc.includes("@TeleOp(name = \"Test RollingIntake\"") &&
+      testSrc.includes("gamepad1.aWasPressed()") &&
+      testSrc.includes("rollingIntake.spinIn()") &&
+      testSrc.includes("rollingIntake.stop()"),
+    testSrc.slice(0, 400)
+  );
+  check("index lists subsystem", readFileSync(indexPath, "utf8").includes("RollingIntake"));
+
+  r = await call(client, "create_subsystem", { projectPath: fakeProject, name: "RollingIntake", group: "intake" });
+  check("create_subsystem refuses overwrite", r.isError && r.text.includes("already exists"));
+
+  r = await call(client, "document_subsystem", {
+    projectPath: fakeProject,
+    name: "RollingIntake",
+    content: "# RollingIntake\n\nHand-written notes: motor stalls above 0.8 power.\n",
+  });
+  check("document_subsystem updates doc", !r.isError && readFileSync(docPath, "utf8").includes("stalls above 0.8"), r.text);
+
+  r = await call(client, "list_subsystems", { projectPath: fakeProject });
+  check("list_subsystems finds it", !r.isError && r.text.includes("RollingIntake"), r.text);
+
+  r = await call(client, "get_subsystem", { projectPath: fakeProject, name: "RollingIntake", includeSource: true });
+  check("get_subsystem returns doc+source", !r.isError && r.text.includes("stalls above 0.8") && r.text.includes("class RollingIntake"), r.text.slice(0, 200));
+
+  r = await call(client, "create_calculation", { projectPath: fakeProject, name: "TrajectorySolver" });
+  const calcPath = join(fakeProject, "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/util/TrajectorySolver.java");
+  check("create_calculation writes helper", !r.isError && existsSync(calcPath) && readFileSync(calcPath, "utf8").includes("private TrajectorySolver()"), r.text);
+
+  // Add a second subsystem re-using the same config name, to test collision detection.
+  await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "Transfer",
+    group: "intake",
+    motors: [{ name: "transferMotor", config: "intake" }],
+    methods: ["transferOn"],
+  });
+  r = await call(client, "hardware_manifest", { projectPath: fakeProject });
+  check(
+    "hardware_manifest lists names + flags duplicate",
+    !r.isError && r.text.includes('"intake"') && r.text.includes("multiple files"),
+    r.text
+  );
 
   // Robot tools (no robot attached — just verify graceful behavior)
   r = await call(client, "adb_devices", {});

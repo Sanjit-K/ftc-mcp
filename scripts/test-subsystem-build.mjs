@@ -1,0 +1,77 @@
+#!/usr/bin/env node
+// Integration test: scaffold a realistic set of subsystems (mirroring last year's
+// intake/spindexer/transfer/turret robot) + a calculation helper, then compile
+// everything in a real Gradle build.
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const project = process.argv[2] ?? join(ROOT, "refs/FtcRobotController");
+
+const transport = new StdioClientTransport({ command: "node", args: [join(ROOT, "dist/index.js")] });
+const client = new Client({ name: "subsystem-build-test", version: "0.0.1" });
+await client.connect(transport);
+
+async function call(name, args) {
+  const res = await client.callTool({ name, arguments: args });
+  const text = res.content.map((c) => c.text).join("\n");
+  console.log(`--- ${name}(${args.name ?? ""}) ${res.isError ? "(ERROR)" : ""}\n${text.slice(0, 400)}`);
+  if (res.isError) {
+    await client.close();
+    process.exit(1);
+  }
+  return text;
+}
+
+await call("create_subsystem", {
+  projectPath: project,
+  name: "RollingIntake",
+  group: "intake",
+  description: "Rolling intake that grabs balls off the floor.",
+  motors: [{ name: "intakeMotor", config: "intake", reversed: true }],
+  methods: ["spinIn", "spitOut"],
+  overwrite: true,
+});
+
+await call("create_subsystem", {
+  projectPath: project,
+  name: "Spindexer",
+  group: "sorting",
+  description: "Rotating spindexer that sorts balls by color before scoring.",
+  motors: [{ name: "spindexerMotor", config: "spindexer" }],
+  sensors: [
+    { name: "colorSensor", config: "spindexer_color", type: "color" },
+    { name: "distanceSensor", config: "spindexer_distance", type: "distance" },
+  ],
+  methods: ["indexNext", "readColor", "alignToSlot"],
+  overwrite: true,
+});
+
+await call("create_subsystem", {
+  projectPath: project,
+  name: "Turret",
+  group: "shooting",
+  description: "Shooter turret: 1 motor + aiming servo + analog turret encoder.",
+  motors: [{ name: "shooterMotor", config: "shooter" }],
+  servos: [{ name: "turretServo", config: "turret" }],
+  sensors: [{ name: "turretEncoder", config: "turret_encoder", type: "analog" }],
+  methods: ["on", "off", "aim"],
+  overwrite: true,
+});
+
+await call("create_calculation", {
+  projectPath: project,
+  name: "TrajectorySolver",
+  group: "shooting",
+  description: "Live trajectory math for the shooter (pure functions).",
+  overwrite: true,
+});
+
+await call("list_subsystems", { projectPath: project });
+await call("hardware_manifest", { projectPath: project });
+await call("build", { projectPath: project });
+
+await client.close();
+console.log("SUBSYSTEM INTEGRATION TEST PASSED");

@@ -57,6 +57,16 @@ claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
 | `create_opmode` | Scaffold an OpMode: `linear-teleop`, `mecanum-teleop`, `linear-auto`, `pedro-auto`, `pedro-teleop` |
 | `install_pedro` | Add Pedro Pathing to a project (Gradle deps, compileSdk 34, `Constants.java` scaffold) |
 
+**Subsystems** — the recommended way to structure robot code: one plain class per mechanism, with a living markdown knowledge base the LLM reads and updates.
+
+| Tool | What it does |
+|---|---|
+| `create_subsystem` | Scaffold a subsystem class (HardwareMap constructor, config-name constants, action methods, `stop()`) + a bench-test TeleOp + a markdown doc |
+| `document_subsystem` | Write/update a subsystem's knowledge-base doc (functions, tuning, config names, quirks) |
+| `list_subsystems` / `get_subsystem` | Read the robot's architecture from `docs/` |
+| `create_calculation` | Scaffold a stateless helper class (e.g. live trajectory math) |
+| `hardware_manifest` | Aggregate every config name across subsystems and flag duplicates/typos vs. the Driver Station config |
+
 **Robot**
 
 | Tool | What it does |
@@ -73,6 +83,20 @@ claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
 3. `create_opmode(className: "CompTeleOp", template: "mecanum-teleop")`
 4. `build` → fix any compiler errors → `deploy`
 5. Driver tests the OpMode → `robot_logs(filter: "CompTeleOp")` to debug
+
+## Subsystem workflow
+
+The intended way to build a robot: describe each mechanism to the LLM and let it scaffold subsystems + maintain their docs.
+
+1. *"We have a rolling intake — one motor, spins in, spits out."* →
+   `create_subsystem(name: "RollingIntake", group: "intake", motors: [{name: "intakeMotor", config: "intake"}], methods: ["spinIn", "spitOut"])`
+   → writes `RollingIntake.java`, `TestRollingIntake.java` (bench test), and `docs/subsystems/RollingIntake.md`.
+2. Fill in the method bodies (the LLM can, using `get_sample`/`search_docs` for reference).
+3. `document_subsystem` to record tuning values, sensor thresholds, and quirks as you dial them in.
+4. `hardware_manifest` before a competition to confirm every config name in code matches the Driver Station configuration — and that two subsystems aren't fighting over one name.
+5. A future session runs `list_subsystems` / `get_subsystem` and instantly knows the robot.
+
+Sub-subsystems live under a shared group, e.g. `group: "shooting.turret"` → `teamcode/shooting/turret/`. Calculation-heavy logic goes in `create_calculation` helpers so it stays out of the subsystem and OpMode files.
 
 ## Configuration
 
@@ -92,6 +116,7 @@ claude mcp add ftc -- node /path/to/ftcmcp/dist/index.js
 
 ```bash
 npm test            # build + MCP smoke test (no robot needed)
-node scripts/test-build.mjs [projectPath]         # real Gradle build through the build tool
-node scripts/test-pedro-build.mjs [projectPath]   # install_pedro + all templates + full build
+node scripts/test-build.mjs [projectPath]           # real Gradle build through the build tool
+node scripts/test-pedro-build.mjs [projectPath]     # install_pedro + all templates + full build
+node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + full build
 ```

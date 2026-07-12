@@ -17,6 +17,14 @@ import {
   robotLogs,
 } from "./robot.js";
 import { TEMPLATE_DESCRIPTIONS, TEMPLATE_IDS } from "./templates.js";
+import {
+  createCalculation,
+  createSubsystem,
+  documentSubsystem,
+  getSubsystem,
+  hardwareManifest,
+  listSubsystems,
+} from "./subsystems.js";
 import { ToolError } from "./paths.js";
 
 const server = new McpServer({ name: "ftc-mcp", version: "0.1.0" });
@@ -197,6 +205,120 @@ server.registerTool(
   guard(async ({ projectPath, version }: { projectPath?: string; version?: string }) =>
     installPedro(projectPath, version)
   )
+);
+
+// ---------- Subsystems (robot architecture layer) ----------
+
+const deviceSchema = z.object({
+  name: z.string().describe("camelCase Java field name, e.g. shooterMotor"),
+  config: z.string().optional().describe("Driver Station config name (default: snake_case of name)"),
+  reversed: z.boolean().optional(),
+});
+const sensorSchema = z.object({
+  name: z.string(),
+  config: z.string().optional(),
+  type: z.enum(["color", "distance", "touch", "analog", "digital", "imu"]),
+});
+
+server.registerTool(
+  "create_subsystem",
+  {
+    title: "Create a subsystem",
+    description:
+      "Scaffold a plain FTC subsystem class (constructor takes HardwareMap; hardware fields, config-name constants, " +
+      "action methods, and a safety stop()). Also writes a bench-test TeleOp and a markdown doc in docs/. " +
+      "This is the recommended way to structure robot code — one class per mechanism (intake, spindexer, turret...).",
+    inputSchema: {
+      projectPath: projectPathArg,
+      name: z.string().describe("Subsystem class name, e.g. RollingIntake"),
+      group: z
+        .string()
+        .optional()
+        .describe("Lowercase package group / folder, e.g. 'shooting' -> teamcode.shooting (default: subsystems)"),
+      description: z.string().optional(),
+      motors: z.array(deviceSchema).optional(),
+      servos: z.array(deviceSchema).optional(),
+      crServos: z.array(deviceSchema).optional(),
+      sensors: z.array(sensorSchema).optional(),
+      methods: z.array(z.string()).optional().describe("Action method names to stub, e.g. ['spinIn','spitOut']"),
+      testOpMode: z.boolean().optional().describe("Also generate a bench-test TeleOp (default true)"),
+      overwrite: z.boolean().optional(),
+    },
+  },
+  guard(async (args: Parameters<typeof createSubsystem>[0]) => createSubsystem(args))
+);
+
+server.registerTool(
+  "document_subsystem",
+  {
+    title: "Document a subsystem",
+    description:
+      "Write or update the markdown knowledge-base doc for a subsystem (docs/subsystems/<Name>.md) and refresh " +
+      "the docs/ROBOT.md index. Use this to record what each function does, tuning values, config names, and quirks " +
+      "as the team describes them — so future sessions understand the robot without reading all the code.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      name: z.string().describe("Subsystem name (matches the class name)"),
+      content: z.string().describe("Full markdown body for the subsystem doc"),
+    },
+  },
+  guard(async (args: Parameters<typeof documentSubsystem>[0]) => documentSubsystem(args))
+);
+
+server.registerTool(
+  "list_subsystems",
+  {
+    title: "List documented subsystems",
+    description:
+      "List the robot's subsystems from the docs/ knowledge base. Start here to learn the robot's architecture.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => listSubsystems(projectPath))
+);
+
+server.registerTool(
+  "get_subsystem",
+  {
+    title: "Get subsystem doc",
+    description:
+      "Return a subsystem's knowledge-base doc (hardware, config names, functions, tuning, quirks), optionally with its Java source.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      name: z.string(),
+      includeSource: z.boolean().optional().describe("Append the subsystem's .java source"),
+    },
+  },
+  guard(async (args: Parameters<typeof getSubsystem>[0]) => getSubsystem(args))
+);
+
+server.registerTool(
+  "create_calculation",
+  {
+    title: "Create a calculation helper",
+    description:
+      "Scaffold a stateless static-only helper class (e.g. live trajectory math) that any OpMode or subsystem can call. " +
+      "Keeps math out of subsystem/OpMode files.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      name: z.string().describe("Class name, e.g. TrajectorySolver"),
+      group: z.string().optional().describe("Package group (default: util)"),
+      description: z.string().optional(),
+      overwrite: z.boolean().optional(),
+    },
+  },
+  guard(async (args: Parameters<typeof createCalculation>[0]) => createCalculation(args))
+);
+
+server.registerTool(
+  "hardware_manifest",
+  {
+    title: "Hardware config manifest",
+    description:
+      "Scan TeamCode for every robot-configuration name (from hardwareMap.get and subsystem constructors) and list them, " +
+      "flagging any name used in multiple files. Use to cross-check code against the Driver Station configuration and catch typos/collisions.",
+    inputSchema: { projectPath: projectPathArg },
+  },
+  guard(async ({ projectPath }: { projectPath?: string }) => hardwareManifest(projectPath))
 );
 
 // ---------- Robot ----------

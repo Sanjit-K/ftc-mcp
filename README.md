@@ -37,7 +37,7 @@ Then run `npx ftc-mcp setup` once so the knowledge tools have their reference da
 ### From source (development)
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/ftc-mcp && cd ftc-mcp
+git clone https://github.com/Sanjit-K/ftc-mcp && cd ftc-mcp
 npm install && npm run build
 npm run setup      # clones FTC samples + Pedro docs into refs/
 ```
@@ -143,3 +143,15 @@ node scripts/test-build.mjs [projectPath]           # real Gradle build through 
 node scripts/test-pedro-build.mjs [projectPath]     # install_pedro + all templates + full build
 node scripts/test-subsystem-build.mjs [projectPath] # scaffold intake/spindexer/turret subsystems + a full TeleOp + build
 ```
+
+## Website and docs
+
+The open-source marketing site and documentation live in [`website/`](website/). It is a Next.js/vinext app with the landing page at `/` and quickstart documentation at `/docs`.
+
+```bash
+cd website
+npm install
+npm run dev
+```
+
+The website content brief is versioned in [`website.md`](website.md).

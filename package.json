@@ -37,12 +37,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR-USERNAME/ftc-mcp.git"
+    "url": "git+https://github.com/Sanjit-K/ftc-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR-USERNAME/ftc-mcp/issues"
+    "url": "https://github.com/Sanjit-K/ftc-mcp/issues"
   },
-  "homepage": "https://github.com/YOUR-USERNAME/ftc-mcp#readme",
+  "homepage": "https://github.com/Sanjit-K/ftc-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.1"

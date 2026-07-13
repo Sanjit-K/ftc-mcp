@@ -37,8 +37,10 @@ import { inspectProject } from "./diagnostics.js";
 import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
 import { runWifiDeployWorker, startWifiDeploy, wifiDeployStatus } from "./network.js";
+import { refactorAutoForVisualizer } from "./autonomous.js";
+import { getAutonomousStudioDraft, openAutonomousStudio } from "./studio.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 // CLI subcommands (run before starting the server).
 const cliArg = process.argv[2];
@@ -58,6 +60,17 @@ if (cliArg === "doctor") {
   console.log(await inspectProject(process.argv[3]));
   process.exit(0);
 }
+if (cliArg === "studio") {
+  const sourceArg = process.argv.find((arg) => arg.startsWith("--source="));
+  const portArg = process.argv.find((arg) => arg.startsWith("--port="));
+  console.log(await openAutonomousStudio({
+    projectPath: process.argv[3]?.startsWith("--") ? undefined : process.argv[3],
+    sourceFile: sourceArg?.slice("--source=".length),
+    port: portArg ? Number(portArg.slice("--port=".length)) : undefined,
+    openBrowser: !process.argv.includes("--no-open"),
+  }));
+  await new Promise(() => {});
+}
 if (cliArg === "--version" || cliArg === "-v") {
   console.log(VERSION);
   process.exit(0);
@@ -70,6 +83,7 @@ if (cliArg === "--help" || cliArg === "-h") {
       `  ftc-toolchain setup      Download reference material (FTC samples + Pedro docs)\n` +
       `  ftc-toolchain update     Fast-forward clean reference checkouts\n` +
       `  ftc-toolchain doctor     Check project, build, docs, and environment readiness\n` +
+      `  ftc-toolchain studio     Run Autonomous Studio on localhost\n` +
       `  ftc-toolchain --version  Print version\n\n` +
       `Add to Codex:         codex mcp add ftc-toolchain -- npx -y ftc-toolchain\n` +
       `Add to Claude Code:   claude mcp add ftc-toolchain -- npx -y ftc-toolchain\n` +
@@ -347,6 +361,55 @@ server.registerTool(
   )
 );
 
+server.registerTool(
+  "refactor_auto_for_visualizer",
+  {
+    title: "Refactor an existing autonomous for visual editing",
+    description:
+      "Import an existing Pedro Pathing Java autonomous. Extracts BezierLine/BezierCurve path chains, waits, and a conservative state/action timeline; " +
+      "writes a .pp file that Pedro Visualizer can open plus an .ftcauto.json source-of-truth that preserves robot actions for agent and human editing. " +
+      "Ambiguous Java is reported for review instead of silently guessed.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      sourceFile: z.string().describe("Java file relative to the FTC project, e.g. TeamCode/src/main/java/org/firstinspires/ftc/teamcode/BlueAuto.java"),
+      outputDir: z.string().optional().describe("Output directory relative to the project (default: autos)"),
+      overwrite: z.boolean().optional().describe("Replace existing imported files after backing them up"),
+      dryRun: z.boolean().optional().describe("Extract and preview both files without writing"),
+    },
+  },
+  guard(async (args: Parameters<typeof refactorAutoForVisualizer>[0]) => refactorAutoForVisualizer(args))
+);
+
+server.registerTool(
+  "open_autonomous_studio",
+  {
+    title: "Open the local Autonomous Studio",
+    description:
+      "Start the rich Pedro Pathing autonomous editor on 127.0.0.1. It can load an existing Java auto and automatically imports public robot commands " +
+      "from TeamCode subsystem and automation folders, organized by source. Existing-auto export patches path geometry in the original class instead of replacing custom robot logic; " +
+      "timeline and structural edits are synced for get_autonomous_studio_draft. The studio is served only by this local FTC Toolchain process and is never uploaded.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      sourceFile: z.string().optional().describe("Existing autonomous Java file relative to the FTC project; omit to start from scratch"),
+      port: z.number().int().min(1024).max(65535).optional().describe("Localhost port (default: 7331)"),
+      openBrowser: z.boolean().optional().describe("Open the local URL in the default browser (default: true)"),
+    },
+  },
+  guard(async (args: Parameters<typeof openAutonomousStudio>[0]) => openAutonomousStudio(args))
+);
+
+server.registerTool(
+  "get_autonomous_studio_draft",
+  {
+    title: "Read the open Autonomous Studio draft",
+    description:
+      "Read the live rich autonomous spec from the currently open local Studio together with its original Java source. " +
+      "Use this before integrating timeline, action, or path-structure changes so custom imports, annotations, subsystem setup, lifecycle logic, helper routines, and state conditions are preserved.",
+    inputSchema: {},
+  },
+  guard(async () => getAutonomousStudioDraft())
+);
+
 // ---------- Subsystems (robot architecture layer) ----------
 
 const deviceSchema = z.object({
@@ -359,6 +422,15 @@ const sensorSchema = z.object({
   config: z.string().optional(),
   type: z.enum(["color", "distance", "touch", "analog", "digital", "imu"]),
 });
+const subsystemActionSchema = z.object({
+  name: z.string().describe("Lower-camel-case Java method name, e.g. startOuttakeRoutine"),
+  label: z.string().optional().describe("Human label shown in Autonomous Studio (default: method name humanized)"),
+  description: z.string().optional().describe("Robot-specific behavior shown to the driver/programmer in Autonomous Studio and subsystem docs"),
+  mode: z.enum(["instant", "blocking"]).optional().describe("instant advances immediately; blocking waits for completionCondition"),
+  periodicCall: z.string().optional().describe("Java statement run every autonomous loop while a blocking action is active, e.g. 'handleOuttakeRoutine();'"),
+  completionCondition: z.string().optional().describe("Required for blocking actions; Java boolean expression such as '!outtakeInProgress'"),
+  autonomous: z.boolean().optional().describe("false keeps the method public but hides it from Autonomous Studio (default: true)"),
+});
 
 server.registerTool(
   "create_subsystem",
@@ -366,7 +438,8 @@ server.registerTool(
     title: "Create a subsystem",
     description:
       "Scaffold a plain FTC subsystem class (constructor takes HardwareMap; hardware fields, config-name constants, " +
-      "action methods, and a safety stop()). Also writes a bench-test TeleOp and a markdown doc in docs/. " +
+      "action methods, and a safety stop()). Rich action entries generate @ftc-action JavaDoc metadata used by Autonomous Studio for labels, descriptions, " +
+      "instant/blocking behavior, periodic calls, completion conditions, and autonomous visibility. Also writes a bench-test TeleOp and a markdown doc in docs/. " +
       "This is the recommended way to structure robot code — one class per mechanism (intake, spindexer, turret...).",
     inputSchema: {
       projectPath: projectPathArg,
@@ -408,7 +481,12 @@ server.registerTool(
         .enum(["panels", "ftcdashboard", "none"])
         .optional()
         .describe("Live-tuning system for tunable constants (default: panels, matching install_pedro's Panels)"),
-      methods: z.array(z.string()).optional().describe("Action method names to stub, e.g. ['spinIn','spitOut']"),
+      methods: z
+        .array(z.union([z.string(), subsystemActionSchema]))
+        .optional()
+        .describe(
+          "Actions to scaffold. Strings remain supported. Rich entries generate @ftc-action metadata for Studio labels, descriptions, instant/blocking execution, periodic calls, completion conditions, and autonomous visibility."
+        ),
       testOpMode: z.boolean().optional().describe("Also generate a bench-test TeleOp (default true)"),
       overwrite: z.boolean().optional(),
       dryRun: z.boolean().optional().describe("Validate and preview all generated files without writing them"),

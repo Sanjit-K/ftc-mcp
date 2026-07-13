@@ -31,7 +31,7 @@ export default function Home() {
     <main>
       <nav className="nav shell">
         <Link href="/" className="brand" aria-label="FTC Toolchain home"><img className="brandMark" src={`${assetPrefix}/logo.svg`} alt="" /><span>FTC Toolchain</span></Link>
-        <div className="navLinks"><a href="#features">Features</a><a href="#proof">Proof</a><Link href="/docs">Docs</Link></div>
+        <div className="navLinks"><a href="#features">Features</a><Link href="/docs#autonomous-studio">Local Auto Studio</Link><Link href="/docs">Docs</Link></div>
         <a className="navGit" href="https://github.com/Sanjit-K/ftc-toolchain" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
       </nav>
 
@@ -63,7 +63,7 @@ export default function Home() {
       </section>
 
       <section className="features shell" id="features">
-        <div className="sectionHead"><div><p className="sectionKicker">35 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
+        <div className="sectionHead"><div><p className="sectionKicker">38 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
         <div className="featureGrid">{features.map((f) => <article className="featureCard" key={f.id}><div className="featureTop"><span>{f.id}</span><i>↗</i></div><p className="featureLabel">{f.label}</p><h3>{f.title}</h3><p>{f.body}</p><code>{f.tag}</code></article>)}</div>
       </section>
 
@@ -76,7 +76,7 @@ export default function Home() {
       <section className="proof shell" id="proof">
         <div className="proofCopy"><p className="sectionKicker">PROOF, NOT A DEMO</p><h2>We rebuilt a real competition robot from a prompt.</h2><p>Eight subsystems. Dual TeleOps. A color-sorting spindexer with custom PID. We started with an empty folder and a plain-English description.</p><p className="honesty">The AI wrote the logic. FTC Toolchain guaranteed the structure, wiring, and a buildable result.</p></div>
         <div className="stats"><div><strong>8<span>/8</span></strong><p>subsystems reproduced</p></div><div><strong>76<span>/76</span></strong><p>public methods matched</p></div><div><strong>01</strong><p>real, installable APK</p></div></div>
-        <div className="diffCard"><div className="diffHead"><span>Controls.java</span><small>GENERATED · HUMAN-EDITABLE</small></div><pre><span className="comment">// Driver bindings stay out of robot logic</span>{`\n`}<span className="purple">public void</span> <span className="blue">bind</span>(GamepadEx driver) {`{`}{`\n`}  driver.<span className="blue">getGamepadButton</span>(A){`\n`}    .<span className="blue">whenPressed</span>(intake::<span className="blue">spinIn</span>){`\n`}    .<span className="blue">whenReleased</span>(intake::<span className="blue">stop</span>);{`\n`}{`}`}</pre></div>
+        <div className="diffCard"><div className="diffHead"><span>Controls.java</span><small>GENERATED · HUMAN-EDITABLE</small></div><pre><span className="comment">{"// Driver bindings stay out of robot logic"}</span>{`\n`}<span className="purple">public void</span> <span className="blue">bind</span>(GamepadEx driver) {`{`}{`\n`}  driver.<span className="blue">getGamepadButton</span>(A){`\n`}    .<span className="blue">whenPressed</span>(intake::<span className="blue">spinIn</span>){`\n`}    .<span className="blue">whenReleased</span>(intake::<span className="blue">stop</span>);{`\n`}{`}`}</pre></div>
       </section>
 
       <section className="safety shell"><div className="shield">✓</div><div><p className="sectionKicker">YOU’RE IN CONTROL</p><h2>Review the diff.<br />Then run the robot.</h2></div><p>FTC Toolchain proposes and runs local tools. It won’t overwrite existing files by default, and nothing deploys to your Control Hub unless you ask.</p></section>

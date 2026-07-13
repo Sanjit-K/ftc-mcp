@@ -1,0 +1,330 @@
+.studio {
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 68px 30px minmax(0, 1fr) clamp(150px, 22vh, 190px) 26px;
+  overflow: hidden;
+}
+
+.studio,
+.studio * {
+  scrollbar-width: none;
+}
+
+.studio *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.timelineCollapsedStudio {
+  grid-template-rows: 68px 30px minmax(0, 1fr) 42px 26px;
+}
+
+.workspace {
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-columns: var(--library-width, 238px) minmax(0, 1fr) var(--inspector-width, 286px);
+  transition: grid-template-columns 160ms ease;
+}
+
+.libraryCollapsedWorkspace {
+  --library-width: 42px;
+}
+
+.inspectorCollapsedWorkspace {
+  --inspector-width: 42px;
+}
+
+.library,
+.inspector {
+  min-width: 0;
+  overflow: auto;
+}
+
+.sideTitle {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  border-bottom: 1px solid #2a3034;
+  color: #69747a;
+  font: 800 8px var(--font-geist-mono);
+  letter-spacing: 0.12em;
+}
+
+.sideTitle button,
+.inspectorTitle button,
+.timelineToggle {
+  width: 23px;
+  height: 23px;
+  border: 1px solid #353c40;
+  border-radius: 4px;
+  background: #1a1f22;
+  color: #bdc4c8;
+  cursor: pointer;
+}
+
+.sideCollapsed {
+  overflow: hidden;
+}
+
+.sideCollapsed .sideTitle,
+.sideCollapsed.inspector .inspectorTitle {
+  height: 100%;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 10px 6px;
+}
+
+.sideCollapsed .sideTitle span,
+.sideCollapsed.inspector .inspectorTitle span {
+  writing-mode: vertical-rl;
+}
+
+.sectionToggle {
+  width: auto !important;
+  flex: 1;
+  border: 0 !important;
+  background: transparent !important;
+  text-align: left;
+}
+
+.actionTree {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 7px 9px;
+}
+
+.actionGroup {
+  border: 1px solid #252c30;
+  border-radius: 5px;
+  background: #0e1214;
+  overflow: hidden;
+}
+
+.folderRow {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 8px;
+  padding: 8px;
+  border: 0;
+  background: #151a1d;
+  color: #7b858b;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folderRow span {
+  grid-column: 1 / -1;
+  color: #59646a;
+  font: 700 7px var(--font-geist-mono);
+  letter-spacing: 0.09em;
+}
+
+.folderRow b {
+  overflow: hidden;
+  color: #bdc5c9;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folderRow small {
+  color: #59646a;
+  font: 8px var(--font-geist-mono);
+}
+
+.fieldArea {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fieldShell {
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.field {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  aspect-ratio: auto;
+  border-radius: 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.panning {
+  cursor: grabbing;
+}
+
+.panSurface {
+  cursor: grab;
+}
+
+.timeline {
+  position: relative;
+  z-index: 5;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.timelineCollapsed {
+  height: 42px;
+}
+
+.timelineCollapsed > :first-child {
+  height: 41px;
+  border-bottom: 0;
+}
+
+.timelineToggle {
+  margin-right: 2px;
+}
+
+.draggableStep {
+  cursor: grab;
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.draggableStep:active {
+  cursor: grabbing;
+}
+
+.draggingStep {
+  opacity: 0.35;
+  transform: scale(0.98);
+}
+
+.dragHandle {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4f5960;
+  font: 10px var(--font-geist-mono);
+  letter-spacing: -3px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.dragTarget {
+  border-color: #f97316;
+  transform: translateY(-2px);
+}
+
+.cameraControls {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #343b3f;
+  border-radius: 6px;
+  background: rgba(13, 17, 19, 0.9);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+}
+
+.cameraControls button {
+  min-width: 27px;
+  height: 25px;
+  border: 0;
+  border-radius: 4px;
+  background: #1b2125;
+  color: #cdd3d6;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.cameraControls button:hover {
+  background: #293137;
+  color: #fff;
+}
+
+.cameraControls span {
+  min-width: 37px;
+  color: #879198;
+  text-align: center;
+  font: 8px var(--font-geist-mono);
+}
+
+.lockedStart {
+  pointer-events: none;
+}
+
+.connectionNotice {
+  border-left-color: #34d399;
+}
+
+.connectionNotice span {
+  color: #34d399;
+}
+
+@media (max-width: 1050px) and (min-width: 761px) {
+  .workspace {
+    --library-width: 210px;
+    --inspector-width: 260px;
+    grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
+  }
+
+  .libraryCollapsedWorkspace {
+    --library-width: 42px;
+  }
+
+  .inspectorCollapsedWorkspace {
+    --inspector-width: 42px;
+  }
+
+  .inspector {
+    position: static;
+    inset: auto;
+    width: auto;
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .studio {
+    height: auto;
+    min-height: 100dvh;
+    display: flex;
+    overflow: auto;
+  }
+
+  .workspace {
+    overflow: visible;
+  }
+
+  .fieldArea {
+    min-height: 520px;
+  }
+
+  .fieldShell {
+    min-height: 440px;
+  }
+
+  .timeline {
+    height: auto;
+    min-height: 220px;
+  }
+}

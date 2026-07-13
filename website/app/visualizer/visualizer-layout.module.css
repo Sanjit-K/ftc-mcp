@@ -1,0 +1,142 @@
+.studio {
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 68px 30px minmax(0, 1fr) clamp(150px, 22vh, 190px) 26px;
+  overflow: hidden;
+}
+
+.workspace {
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fieldArea {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fieldShell {
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 36px 20px;
+}
+
+.field {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  cursor: grab;
+  user-select: none;
+}
+
+.panning {
+  cursor: grabbing;
+}
+
+.panSurface {
+  cursor: grab;
+}
+
+.timeline {
+  position: relative;
+  z-index: 5;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cameraControls {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #343b3f;
+  border-radius: 6px;
+  background: rgba(13, 17, 19, 0.9);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+}
+
+.cameraControls button {
+  min-width: 27px;
+  height: 25px;
+  border: 0;
+  border-radius: 4px;
+  background: #1b2125;
+  color: #cdd3d6;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.cameraControls button:hover {
+  background: #293137;
+  color: #fff;
+}
+
+.cameraControls span {
+  min-width: 37px;
+  color: #879198;
+  text-align: center;
+  font: 8px var(--font-geist-mono);
+}
+
+.lockedStart {
+  pointer-events: none;
+}
+
+.connectionNotice {
+  border-left-color: #34d399;
+}
+
+.connectionNotice span {
+  color: #34d399;
+}
+
+@media (max-width: 1050px) and (min-width: 761px) {
+  .workspace {
+    grid-template-columns: 210px minmax(0, 1fr) 260px;
+  }
+
+  .inspector {
+    position: static;
+    inset: auto;
+    width: auto;
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .studio {
+    height: auto;
+    min-height: 100dvh;
+    display: flex;
+    overflow: auto;
+  }
+
+  .workspace {
+    overflow: visible;
+  }
+
+  .fieldArea {
+    min-height: 520px;
+  }
+
+  .fieldShell {
+    min-height: 440px;
+  }
+
+  .timeline {
+    height: auto;
+    min-height: 220px;
+  }
+}

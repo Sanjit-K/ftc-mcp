@@ -3,8 +3,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import Link from "next/link";
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./visualizer.module.css";
+import layout from "./visualizer-layout.module.css";
 
 type XY = { x: number; y: number };
 type Heading =
@@ -50,6 +51,74 @@ const javaName = (value: string, fallback: string) => {
   const cleaned = value.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^[^A-Za-z_$]+/, "");
   return cleaned || fallback;
 };
+
+const samePoint = (a: XY, b: XY) => Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001;
+
+function pathEnd(path: Path, lines: Line[]): XY {
+  const lineMap = new Map(lines.map((line) => [line.id, line]));
+  for (let index = path.lineIds.length - 1; index >= 0; index--) {
+    const line = lineMap.get(path.lineIds[index]);
+    if (line) return { x: line.endPoint.x, y: line.endPoint.y };
+  }
+  return { ...path.startPoint };
+}
+
+/**
+ * Make timeline geometry physically followable. Each path starts at the prior
+ * path's endpoint (actions and waits do not move the robot). If one path is
+ * reused from a different pose, clone that chain so both occurrences remain
+ * valid Pedro PathChains instead of sharing contradictory start poses.
+ */
+function ensureTimelineContinuity(input: AutoModel): AutoModel {
+  const paths = input.paths.map((path) => ({ ...path, startPoint: { ...path.startPoint }, lineIds: [...path.lineIds] }));
+  const lines = input.lines.map((line) => ({ ...line, endPoint: { ...line.endPoint }, controlPoints: line.controlPoints.map((point) => ({ ...point })) }));
+  const steps = input.steps.map((step) => step.type === "action" ? { ...step, args: { ...step.args } } : { ...step });
+  const pathMap = new Map(paths.map((path) => [path.id, path]));
+  const seen = new Map<string, number>();
+  let cursor: XY = { x: input.startPose.x, y: input.startPose.y };
+
+  for (let index = 0; index < steps.length; index++) {
+    const step = steps[index];
+    if (step.type !== "path") continue;
+    let path = pathMap.get(step.pathId);
+    if (!path) continue;
+    const occurrence = seen.get(path.id) ?? 0;
+    if (!samePoint(path.startPoint, cursor)) {
+      if (occurrence === 0) {
+        path.startPoint = { ...cursor };
+      } else {
+        const suffix = occurrence + 1;
+        const cloneId = `${path.id}_${suffix}`;
+        const clonedLineIds = path.lineIds.map((lineId, lineIndex) => {
+          const source = lines.find((line) => line.id === lineId);
+          const clonedId = `${lineId}-use-${suffix}-${lineIndex + 1}`;
+          if (source) lines.push({ ...source, id: clonedId, name: `${source.name} (${suffix})`, controlPoints: source.controlPoints.map((point) => ({ ...point })), endPoint: { ...source.endPoint } });
+          return clonedId;
+        });
+        path = { ...path, id: cloneId, name: `${path.name} (${suffix})`, startPoint: { ...cursor }, lineIds: clonedLineIds };
+        paths.push(path);
+        pathMap.set(path.id, path);
+        steps[index] = { ...step, pathId: path.id };
+      }
+    }
+    seen.set(step.pathId, occurrence + 1);
+    cursor = pathEnd(path, lines);
+  }
+  return { ...input, paths, lines, steps };
+}
+
+function replaceLine(model: AutoModel, lineId: string, nextLine: Line): AutoModel {
+  const previous = model.lines.find((line) => line.id === lineId);
+  if (!previous) return model;
+  const endpointMoved = !samePoint(previous.endPoint, nextLine.endPoint);
+  return {
+    ...model,
+    lines: model.lines.map((line) => line.id === lineId ? nextLine : line),
+    paths: endpointMoved
+      ? model.paths.map((path) => samePoint(path.startPoint, previous.endPoint) ? { ...path, startPoint: { x: nextLine.endPoint.x, y: nextLine.endPoint.y } } : path)
+      : model.paths,
+  };
+}
 
 const starter: AutoModel = {
   schemaVersion: 1,
@@ -190,7 +259,7 @@ function modelFromFiles(spec: any | null, pp: any | null): AutoModel {
       })
     : stepsFromPP(visualizer, paths);
   const start = spec?.startPose ?? visualizer.startPoint ?? {};
-  return {
+  return ensureTimelineContinuity({
     schemaVersion: 1,
     kind: "ftc-toolchain/autonomous",
     name: String(spec?.name ?? "Imported Auto"),
@@ -205,7 +274,7 @@ function modelFromFiles(spec: any | null, pp: any | null): AutoModel {
     paths,
     actions,
     steps,
-  };
+  });
 }
 
 function pointJava(point: XY) {
@@ -347,22 +416,44 @@ function validate(model: AutoModel): string[] {
     if (step.type === "action" && !actionIds.has(step.actionId)) issues.push(`Timeline references missing action ${step.actionId}.`);
     if (step.type === "wait" && step.durationMs < 0) issues.push("Wait durations cannot be negative.");
   }
+  let cursor: XY = { x: model.startPose.x, y: model.startPose.y };
+  for (const step of model.steps) {
+    if (step.type !== "path") continue;
+    const path = model.paths.find((candidate) => candidate.id === step.pathId);
+    if (!path) continue;
+    if (!samePoint(path.startPoint, cursor)) issues.push(`${path.name} does not start at the previous path endpoint.`);
+    cursor = pathEnd(path, model.lines);
+  }
   return [...new Set(issues)];
 }
 
 function toVisualizer(model: AutoModel) {
   const sequence: any[] = [];
+  const orderedLineIds: string[] = [];
+  const rememberLine = (lineId: string) => {
+    if (!orderedLineIds.includes(lineId)) orderedLineIds.push(lineId);
+  };
   for (const step of model.steps) {
     if (step.type === "path") {
       const path = model.paths.find((candidate) => candidate.id === step.pathId);
-      path?.lineIds.forEach((lineId) => sequence.push({ kind: "path", lineId }));
+      path?.lineIds.forEach((lineId) => {
+        rememberLine(lineId);
+        sequence.push({ kind: "path", lineId });
+      });
     } else if (step.type === "wait") {
       sequence.push({ kind: "wait", id: step.id, name: step.label, durationMs: step.durationMs });
     }
   }
+  model.paths.forEach((path) => path.lineIds.forEach(rememberLine));
+  model.lines.forEach((line) => rememberLine(line.id));
   return {
     startPoint: { x: model.startPose.x, y: model.startPose.y, heading: "constant", degrees: model.startPose.headingDegrees },
-    lines: model.lines,
+    // Pedro's .pp format infers every segment start from the prior segment end,
+    // so timeline order is also geometry order.
+    lines: orderedLineIds.flatMap((id) => {
+      const line = model.lines.find((candidate) => candidate.id === id);
+      return line ? [line] : [];
+    }),
     shapes: [],
     sequence,
     pathChains: model.paths.map((path) => ({ id: path.id, name: path.name, color: path.color, lineIds: path.lineIds })),
@@ -412,7 +503,9 @@ export function RichVisualizer() {
   const [showCode, setShowCode] = useState(false);
   const [addPathId, setAddPathId] = useState(starter.paths[0].id);
   const [addActionId, setAddActionId] = useState(starter.actions[0].id);
-  const [drag, setDrag] = useState<{ kind: "start" | "end" | "control"; pathId: string; lineId?: string; index?: number } | null>(null);
+  const [drag, setDrag] = useState<{ kind: "end" | "control"; pathId: string; lineId: string; index?: number } | null>(null);
+  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
+  const [pan, setPan] = useState<{ clientX: number; clientY: number; camera: { x: number; y: number; zoom: number } } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const issues = useMemo(() => validate(model), [model]);
@@ -447,29 +540,80 @@ export function RichVisualizer() {
     const move = (event: PointerEvent) => {
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const point = { x: clamp(((event.clientX - rect.left) / rect.width) * 144), y: clamp(144 - ((event.clientY - rect.top) / rect.height) * 144) };
+      const viewSize = 144 / camera.zoom;
+      const point = {
+        x: clamp(camera.x + ((event.clientX - rect.left) / rect.width) * viewSize),
+        y: clamp(144 - (camera.y + ((event.clientY - rect.top) / rect.height) * viewSize)),
+      };
       setModel((current) => {
-        if (drag.kind === "start") return { ...current, paths: current.paths.map((path) => path.id === drag.pathId ? { ...path, startPoint: point } : path) };
-        return {
-          ...current,
-          lines: current.lines.map((line) => {
-            if (line.id !== drag.lineId) return line;
-            if (drag.kind === "end") return { ...line, endPoint: { ...line.endPoint, ...point } };
-            return { ...line, controlPoints: line.controlPoints.map((control, index) => index === drag.index ? point : control) };
-          }),
-        };
+        const previous = current.lines.find((line) => line.id === drag.lineId);
+        if (!previous) return current;
+        const nextLine = drag.kind === "end"
+          ? { ...previous, endPoint: { ...previous.endPoint, ...point } }
+          : { ...previous, controlPoints: previous.controlPoints.map((control, index) => index === drag.index ? point : control) };
+        return replaceLine(current, drag.lineId, nextLine);
       });
     };
     const up = () => setDrag(null);
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-  }, [drag]);
+  }, [drag, camera]);
+
+  useEffect(() => {
+    if (!pan) return;
+    const move = (event: PointerEvent) => {
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const viewSize = 144 / pan.camera.zoom;
+      const max = 144 - viewSize;
+      setCamera({
+        zoom: pan.camera.zoom,
+        x: Math.max(0, Math.min(max, pan.camera.x - ((event.clientX - pan.clientX) / rect.width) * viewSize)),
+        y: Math.max(0, Math.min(max, pan.camera.y - ((event.clientY - pan.clientY) / rect.height) * viewSize)),
+      });
+    };
+    const up = () => setPan(null);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  }, [pan]);
+
+  function zoomTo(nextZoom: number, focusX = 0.5, focusY = 0.5) {
+    setCamera((current) => {
+      const zoom = Math.max(1, Math.min(4, nextZoom));
+      const oldSize = 144 / current.zoom;
+      const newSize = 144 / zoom;
+      const focusFieldX = current.x + focusX * oldSize;
+      const focusFieldY = current.y + focusY * oldSize;
+      return {
+        zoom,
+        x: Math.max(0, Math.min(144 - newSize, focusFieldX - focusX * newSize)),
+        y: Math.max(0, Math.min(144 - newSize, focusFieldY - focusY * newSize)),
+      };
+    });
+  }
+
+  function wheelField(event: ReactWheelEvent<SVGSVGElement>) {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const focusX = (event.clientX - rect.left) / rect.width;
+    const focusY = (event.clientY - rect.top) / rect.height;
+    zoomTo(camera.zoom * (event.deltaY < 0 ? 1.2 : 1 / 1.2), focusX, focusY);
+  }
+
+  function startPan(event: ReactPointerEvent<SVGRectElement>) {
+    event.preventDefault();
+    setPan({ clientX: event.clientX, clientY: event.clientY, camera });
+  }
 
   const updatePath = (patch: Partial<Path>) => setModel((current) => ({ ...current, paths: current.paths.map((path) => path.id === selectedPath?.id ? { ...path, ...patch } : path) }));
-  const updateLine = (patch: Partial<Line>) => setModel((current) => ({ ...current, lines: current.lines.map((line) => line.id === selectedLine?.id ? { ...line, ...patch } : line) }));
+  const updateLine = (patch: Partial<Line>) => setModel((current) => {
+    const previous = current.lines.find((line) => line.id === selectedLine?.id);
+    return previous ? replaceLine(current, previous.id, { ...previous, ...patch }) : current;
+  });
   const updateAction = (patch: Partial<ActionDefinition>) => setModel((current) => ({ ...current, actions: current.actions.map((action) => action.id === selectedAction?.id ? { ...action, ...patch } : action) }));
-  const updateStep = (patch: Partial<Step>) => setModel((current) => ({ ...current, steps: current.steps.map((step, index) => index === selectedStep ? { ...step, ...patch } as Step : step) }));
+  const updateStep = (patch: Partial<Step>) => setModel((current) => ensureTimelineContinuity({ ...current, steps: current.steps.map((step, index) => index === selectedStep ? { ...step, ...patch } as Step : step) }));
 
   async function importFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = [...(event.target.files ?? [])];
@@ -532,7 +676,7 @@ export function RichVisualizer() {
     if (!selectedPath) return;
     const remaining = model.paths.filter((path) => path.id !== selectedPath.id);
     const removedLines = new Set(selectedPath.lineIds);
-    setModel((current) => ({
+    setModel((current) => ensureTimelineContinuity({
       ...current,
       paths: current.paths.filter((path) => path.id !== selectedPath.id),
       lines: current.lines.filter((line) => !removedLines.has(line.id)),
@@ -556,7 +700,7 @@ export function RichVisualizer() {
   }
 
   function appendStep(step: Step) {
-    setModel((current) => ({ ...current, steps: [...current.steps, step] }));
+    setModel((current) => ensureTimelineContinuity({ ...current, steps: [...current.steps, step] }));
     setSelectedStep(model.steps.length); setSelectedActionId(null);
   }
 
@@ -566,9 +710,13 @@ export function RichVisualizer() {
     setModel((current) => {
       const steps = [...current.steps];
       [steps[index], steps[target]] = [steps[target], steps[index]];
-      return { ...current, steps };
+      return ensureTimelineContinuity({ ...current, steps });
     });
     setSelectedStep(target);
+  }
+
+  function updateStartPose(patch: Partial<AutoModel["startPose"]>) {
+    setModel((current) => ensureTimelineContinuity({ ...current, startPose: { ...current.startPose, ...patch } }));
   }
 
   const renderPaths = model.paths.flatMap((path) => {
@@ -582,7 +730,9 @@ export function RichVisualizer() {
     });
   });
 
-  return <main className={styles.studio}>
+  const viewSize = 144 / camera.zoom;
+
+  return <main className={`${styles.studio} ${layout.studio}`}>
     <header className={styles.topbar}>
       <div className={styles.identity}><Link href="/" aria-label="FTC Toolchain home">FT</Link><div><b>Autonomous Studio</b><span>FTC Toolchain × Pedro Pathing</span></div></div>
       <label className={styles.projectName}><span>PROJECT</span><input value={model.name} onChange={(e) => setModel({ ...model, name: e.target.value, java: { ...model.java, opModeName: e.target.value } })} /></label>
@@ -597,7 +747,7 @@ export function RichVisualizer() {
 
     <div className={styles.statusbar}><span className={issues.length ? styles.warnDot : styles.goodDot} />{issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"} to review` : "Valid autonomous"}<i /> <span>{notice}</span><strong>Saved locally</strong></div>
 
-    <div className={styles.workspace}>
+    <div className={`${styles.workspace} ${layout.workspace}`}>
       <aside className={styles.library}>
         <section><div className={styles.panelTitle}><span>PATHS</span><button onClick={addPath}>+</button></div>
           <div className={styles.libraryList}>{model.paths.map((path) => <button key={path.id} className={selectedPathId === path.id && !selectedActionId && selectedStep < 0 ? styles.activeItem : ""} onClick={() => { setSelectedPathId(path.id); setSelectedLineId(path.lineIds[0]); setSelectedActionId(null); setSelectedStep(-1); }}><i style={{ background: path.color }} /><span><b>{path.name}</b><small>{path.lineIds.length} segment{path.lineIds.length === 1 ? "" : "s"}</small></span><em>›</em></button>)}</div>
@@ -608,13 +758,14 @@ export function RichVisualizer() {
         </section>
       </aside>
 
-      <section className={styles.fieldArea}>
-        <div className={styles.fieldHeader}><div><span>FIELD VIEW</span><b>144 × 144 in</b></div><p>Drag orange handles to reshape the selected path.</p></div>
-        <div className={styles.fieldShell}>
+      <section className={`${styles.fieldArea} ${layout.fieldArea}`}>
+        <div className={styles.fieldHeader}><div><span>FIELD VIEW</span><b>144 × 144 in</b></div><p>Drag points · wheel to zoom · drag the field to pan · starts stay connected</p></div>
+        <div className={`${styles.fieldShell} ${layout.fieldShell}`}>
           <div className={styles.fieldLabels}><span>BLUE</span><span>AUDIENCE</span><span>RED</span></div>
-          <svg ref={svgRef} className={styles.field} viewBox="0 0 144 144" role="img" aria-label="Interactive FTC autonomous field path editor">
+          <div className={layout.cameraControls}><button onClick={() => zoomTo(camera.zoom / 1.25)} aria-label="Zoom out">−</button><span>{Math.round(camera.zoom * 100)}%</span><button onClick={() => zoomTo(camera.zoom * 1.25)} aria-label="Zoom in">+</button><button onClick={() => setCamera({ x: 0, y: 0, zoom: 1 })}>Fit</button></div>
+          <svg ref={svgRef} className={`${styles.field} ${layout.field} ${pan ? layout.panning : ""}`} viewBox={`${camera.x} ${camera.y} ${viewSize} ${viewSize}`} onWheel={wheelField} role="img" aria-label="Interactive FTC autonomous field path editor">
             <defs><pattern id="minor-grid" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M 12 0 L 0 0 0 12" fill="none" stroke="rgba(255,255,255,.06)" strokeWidth=".35" /></pattern><pattern id="major-grid" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="url(#minor-grid)" /><path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,.1)" strokeWidth=".45" /></pattern></defs>
-            <rect width="144" height="144" fill="#12181d" /><rect width="144" height="144" fill="url(#major-grid)" /><rect x="1" y="1" width="142" height="142" fill="none" stroke="rgba(255,255,255,.18)" strokeWidth=".7" />
+            <rect width="144" height="144" fill="#12181d" onPointerDown={startPan} className={layout.panSurface} /><rect width="144" height="144" fill="url(#major-grid)" pointerEvents="none" /><rect x="1" y="1" width="142" height="142" fill="none" stroke="rgba(255,255,255,.18)" strokeWidth=".7" pointerEvents="none" />
             <g transform="translate(0 144) scale(1 -1)">
               <path d="M 0 72 H 144 M 72 0 V 144" stroke="rgba(255,255,255,.13)" strokeWidth=".5" strokeDasharray="2 2" />
               {renderPaths.map(({ path, line, start }) => <g key={line.id} onPointerDown={() => { setSelectedPathId(path.id); setSelectedLineId(line.id); setSelectedActionId(null); setSelectedStep(-1); }}>
@@ -622,27 +773,28 @@ export function RichVisualizer() {
                 <path d={pathD(start, line)} fill="none" stroke={path.color} strokeWidth={selectedLineId === line.id ? 2.1 : 1.35} opacity={selectedPathId === path.id ? 1 : .48} />
                 {selectedLineId === line.id && <>
                   <path d={`M ${start.x} ${start.y} ${line.controlPoints.map((point) => `L ${point.x} ${point.y}`).join(" ")} L ${line.endPoint.x} ${line.endPoint.y}`} fill="none" stroke="rgba(255,255,255,.32)" strokeWidth=".45" strokeDasharray="1.5 1.5" />
-                  <circle cx={start.x} cy={start.y} r="2.4" fill="#fff" stroke={path.color} strokeWidth="1.2" className={styles.handle} onPointerDown={(e) => { e.preventDefault(); setDrag({ kind: "start", pathId: path.id }); }} />
-                  {line.controlPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="2" fill="#111" stroke="#fff" strokeWidth=".8" className={styles.handle} onPointerDown={(e) => { e.preventDefault(); setDrag({ kind: "control", pathId: path.id, lineId: line.id, index }); }} />)}
-                  <circle cx={line.endPoint.x} cy={line.endPoint.y} r="2.6" fill={path.color} stroke="#fff" strokeWidth=".9" className={styles.handle} onPointerDown={(e) => { e.preventDefault(); setDrag({ kind: "end", pathId: path.id, lineId: line.id }); }} />
+                  <circle cx={start.x} cy={start.y} r="2.4" fill="#fff" stroke={path.color} strokeWidth="1.2" className={layout.lockedStart} />
+                  {line.controlPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="2" fill="#111" stroke="#fff" strokeWidth=".8" className={styles.handle} onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setDrag({ kind: "control", pathId: path.id, lineId: line.id, index }); }} />)}
+                  <circle cx={line.endPoint.x} cy={line.endPoint.y} r="2.6" fill={path.color} stroke="#fff" strokeWidth=".9" className={styles.handle} onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setDrag({ kind: "end", pathId: path.id, lineId: line.id }); }} />
                 </>}
               </g>)}
               <g transform={`translate(${model.startPose.x} ${model.startPose.y}) rotate(${model.startPose.headingDegrees})`}><rect x="-7" y="-7" width="14" height="14" rx="2" fill="rgba(249,115,22,.12)" stroke="#f97316" strokeWidth=".8" /><path d="M 0 0 L 9 0" stroke="#f97316" strokeWidth="1.2" /><path d="M 9 0 L 6 -2 M 9 0 L 6 2" stroke="#f97316" strokeWidth="1" /></g>
             </g>
           </svg>
-          <div className={styles.fieldLegend}><span><i className={styles.startLegend} />Start pose</span><span><i className={styles.pointLegend} />Path point</span><span><i className={styles.controlLegend} />Control point</span></div>
+          <div className={styles.fieldLegend}><span><i className={styles.startLegend} />Auto-connected start</span><span><i className={styles.pointLegend} />Endpoint</span><span><i className={styles.controlLegend} />Control point</span></div>
         </div>
       </section>
 
-      <aside className={styles.inspector}>
+      <aside className={`${styles.inspector} ${layout.inspector}`}>
         <div className={styles.inspectorTitle}><span>INSPECTOR</span><small>{selectedAction ? "ACTION" : selectedTimelineStep ? "TIMELINE STEP" : "PATH"}</small></div>
         {selectedAction ? <ActionEditor action={selectedAction} update={updateAction} remove={removeSelectedAction} /> : selectedTimelineStep ? <StepEditor step={selectedTimelineStep} paths={model.paths} actions={model.actions} update={updateStep} /> : selectedPath && selectedLine ? <PathEditor path={selectedPath} line={selectedLine} updatePath={updatePath} updateLine={updateLine} addSegment={addSegment} removePath={removeSelectedPath} selectLine={setSelectedLineId} /> : <p className={styles.empty}>Select a path, action, or timeline step.</p>}
+        <div className={styles.javaSettings}><span>ROBOT START POSE</span><div className={styles.twoFields}><label>X<input type="number" value={model.startPose.x} onChange={(e) => updateStartPose({ x: number(e.target.value) })} /></label><label>Y<input type="number" value={model.startPose.y} onChange={(e) => updateStartPose({ y: number(e.target.value) })} /></label></div><label>Heading degrees<input type="number" value={model.startPose.headingDegrees} onChange={(e) => updateStartPose({ headingDegrees: number(e.target.value) })} /></label></div>
         <div className={styles.javaSettings}><span>JAVA TARGET</span><label>Package<input value={model.java.packageName} onChange={(e) => setModel({ ...model, java: { ...model.java, packageName: e.target.value } })} /></label><div className={styles.twoFields}><label>Class<input value={model.java.className} onChange={(e) => setModel({ ...model, java: { ...model.java, className: e.target.value } })} /></label><label>Group<input value={model.java.group} onChange={(e) => setModel({ ...model, java: { ...model.java, group: e.target.value } })} /></label></div></div>
         {issues.length > 0 && <div className={styles.issues}><span>REVIEW BEFORE EXPORT</span>{issues.map((issue) => <p key={issue}>! {issue}</p>)}</div>}
       </aside>
     </div>
 
-    <section className={styles.timeline}>
+    <section className={`${styles.timeline} ${layout.timeline}`}>
       <div className={styles.timelineTop}><div><span>AUTONOMOUS TIMELINE</span><b>{model.steps.length} steps</b></div><div className={styles.adders}>
         <select value={addPathId} onChange={(e) => setAddPathId(e.target.value)}>{model.paths.map((path) => <option key={path.id} value={path.id}>{path.name}</option>)}</select><button disabled={!addPathId} onClick={() => appendStep({ id: nextId("step"), type: "path", pathId: addPathId })}>+ Path</button>
         <select value={addActionId} onChange={(e) => setAddActionId(e.target.value)}>{model.actions.map((action) => <option key={action.id} value={action.id}>{action.label}</option>)}</select><button disabled={!addActionId} onClick={() => { const action = model.actions.find((candidate) => candidate.id === addActionId); appendStep({ id: nextId("step"), type: "action", actionId: addActionId, args: Object.fromEntries((action?.parameters ?? []).map((p) => [p.name, p.defaultValue])) }); }}>+ Action</button>
@@ -654,7 +806,7 @@ export function RichVisualizer() {
         return <div key={step.id} role="button" tabIndex={0} aria-label={`Edit step ${index + 1}`} className={`${styles.stepCard} ${selectedStep === index && !selectedActionId ? styles.selectedStep : ""}`} onClick={() => { setSelectedStep(index); setSelectedActionId(null); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedStep(index); setSelectedActionId(null); } }}>
           <div className={styles.stepNumber}>{String(index + 1).padStart(2, "0")}</div><i className={step.type === "path" ? styles.pathStep : step.type === "action" ? styles.actionStep : styles.waitStep}>{step.type === "path" ? "↗" : step.type === "action" ? "⚡" : "◷"}</i>
           <span><small>{step.type}</small><b>{path?.name ?? action?.label ?? (step.type === "wait" ? `${step.durationMs} ms` : "Missing")}</b></span>
-          <div className={styles.stepTools}><button aria-label="Move step left" onClick={(e) => { e.stopPropagation(); moveStep(index, -1); }}>←</button><button aria-label="Move step right" onClick={(e) => { e.stopPropagation(); moveStep(index, 1); }}>→</button><button aria-label="Delete step" onClick={(e) => { e.stopPropagation(); setModel((current) => ({ ...current, steps: current.steps.filter((_, i) => i !== index) })); }}>×</button></div>
+          <div className={styles.stepTools}><button aria-label="Move step left" onClick={(e) => { e.stopPropagation(); moveStep(index, -1); }}>←</button><button aria-label="Move step right" onClick={(e) => { e.stopPropagation(); moveStep(index, 1); }}>→</button><button aria-label="Delete step" onClick={(e) => { e.stopPropagation(); setModel((current) => ensureTimelineContinuity({ ...current, steps: current.steps.filter((_, i) => i !== index) })); }}>×</button></div>
         </div>;
       })}<div className={styles.finishCard}><i>✓</i><span><small>finish</small><b>Auto complete</b></span></div></div>
     </section>
@@ -674,7 +826,7 @@ function PathEditor({ path, line, updatePath, updateLine, addSegment, removePath
   const setHeading = (kind: string) => updateLine({ endPoint: { x: heading.x, y: heading.y, ...(kind === "linear" ? { heading: "linear", startDeg: 0, endDeg: 0 } : kind === "tangential" ? { heading: "tangential", reverse: false } : { heading: "constant", degrees: 0 }) } as Point });
   return <div className={styles.formStack}>
     <Field label="Path name" value={path.name} onChange={(value) => updatePath({ name: value })} />
-    <div className={styles.twoFields}><Field label="Start X" type="number" value={path.startPoint.x} onChange={(value) => updatePath({ startPoint: { ...path.startPoint, x: number(value) } })} /><Field label="Start Y" type="number" value={path.startPoint.y} onChange={(value) => updatePath({ startPoint: { ...path.startPoint, y: number(value) } })} /></div>
+    <div className={`${styles.behavior} ${layout.connectionNotice}`}><span>AUTO-CONNECTED START</span><p>({path.startPoint.x}, {path.startPoint.y}) — derived from the robot start or the previous timeline path endpoint. Move that endpoint and this start moves with it.</p></div>
     <label>Path color<input type="color" value={path.color} onChange={(e) => updatePath({ color: e.target.value })} /></label>
     <div className={styles.segmentTabs}>{path.lineIds.map((id, index) => <button key={id} className={id === line.id ? styles.segmentActive : ""} onClick={() => selectLine(id)}>{index + 1}</button>)}<button onClick={addSegment}>+</button></div>
     <div className={styles.twoFields}><Field label="End X" type="number" value={line.endPoint.x} onChange={(value) => updateLine({ endPoint: { ...line.endPoint, x: number(value) } })} /><Field label="End Y" type="number" value={line.endPoint.y} onChange={(value) => updateLine({ endPoint: { ...line.endPoint, y: number(value) } })} /></div>

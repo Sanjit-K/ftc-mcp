@@ -8,6 +8,7 @@ import { REPO_ROOT, TEAMCODE_JAVA_SUBDIR, ToolError, resolveProject } from "./pa
 export interface StudioAction {
   id: string;
   label: string;
+  description: string;
   javaMethod: string;
   mode: "instant" | "blocking";
   javaCall: string;
@@ -151,6 +152,28 @@ function actionCategory(relativeFile: string, source: string): { category: "subs
   return null;
 }
 
+function precedingJavaDoc(source: string, methodIndex: number): string | null {
+  const before = source.slice(0, methodIndex);
+  const close = before.lastIndexOf("*/");
+  if (close < 0 || before.slice(close + 2).trim()) return null;
+  const open = before.lastIndexOf("/**", close);
+  return open < 0 ? null : before.slice(open + 3, close);
+}
+
+function docTag(doc: string | null, name: string): string | null {
+  if (!doc) return null;
+  const match = doc.match(new RegExp(`^\\s*\\*?\\s*@${name}(?:\\s+(.+?))?\\s*$`, "m"));
+  return match ? (match[1]?.trim() ?? "") : null;
+}
+
+function parameterDefaults(doc: string | null): Map<string, string> {
+  const defaults = new Map<string, string>();
+  if (!doc) return defaults;
+  const regex = /^\s*\*?\s*@ftc-default\s+([A-Za-z_$][\w$]*)\s+(.+?)\s*$/gm;
+  for (const match of doc.matchAll(regex)) defaults.set(match[1], match[2].trim());
+  return defaults;
+}
+
 /** Read public void commands from the robot's subsystem and automation folders. */
 export function discoverRobotActions(projectPath?: string): StudioAction[] {
   const project = resolveProject(projectPath);
@@ -163,27 +186,36 @@ export function discoverRobotActions(projectPath?: string): StudioAction[] {
     if (!location) continue;
     const className = source.match(/\b(?:class|record)\s+(\w+)/)?.[1] ?? file.slice(file.lastIndexOf(sep) + 1, -5);
     const receiver = lowerCamel(className);
+    const taggedClass = source.includes("@ftc-action");
     const methodRegex = /\bpublic\s+(static\s+)?void\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:throws\s+[^\{]+)?\{/g;
     for (const match of source.matchAll(methodRegex)) {
+      const doc = precedingJavaDoc(source, match.index!);
+      const tagged = docTag(doc, "ftc-action") !== null;
+      if (taggedClass && !tagged) continue;
+      if (docTag(doc, "ftc-autonomous")?.toLowerCase() === "false") continue;
       const isStatic = Boolean(match[1]);
       const method = match[2];
+      const defaults = parameterDefaults(doc);
       const parsedParameters = splitParameters(match[3]).flatMap((parameter) => {
         const cleaned = parameter.replace(/\bfinal\s+/g, "").replace(/@[A-Za-z_$][\w$]*(?:\([^)]*\))?\s*/g, "").trim();
         const name = cleaned.match(/([A-Za-z_$][\w$]*)\s*(?:\[\])?$/)?.[1];
         if (!name) return [];
         const type = cleaned.slice(0, cleaned.lastIndexOf(name)).trim();
-        return [{ name, defaultValue: defaultForType(type) }];
+        return [{ name, defaultValue: defaults.get(name) ?? defaultForType(type) }];
       });
       const placeholders = parsedParameters.map((parameter) => `{${parameter.name}}`).join(", ");
       const id = `${location.category}/${location.group}/${className}.${method}`;
+      const label = docTag(doc, "ftc-label") || humanize(method);
+      const mode = docTag(doc, "ftc-mode") === "blocking" ? "blocking" : "instant";
       actions.push({
         id,
-        label: humanize(method),
+        label,
+        description: docTag(doc, "ftc-description") || `Calls ${className}.${method} on the robot.`,
         javaMethod: method,
-        mode: "instant",
-        javaCall: `${isStatic ? className : receiver}.${method}(${placeholders});`,
-        periodicCall: "",
-        completionCondition: "",
+        mode,
+        javaCall: docTag(doc, "ftc-call") || `${isStatic ? className : receiver}.${method}(${placeholders});`,
+        periodicCall: docTag(doc, "ftc-periodic") || "",
+        completionCondition: docTag(doc, "ftc-complete") || "",
         parameters: parsedParameters,
         source: { ...location, className, file: relative(project, file) },
       });

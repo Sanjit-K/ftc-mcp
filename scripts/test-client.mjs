@@ -258,7 +258,17 @@ try {
     group: "intake",
     description: "Rolling intake that grabs balls off the floor.",
     motors: [{ name: "intakeMotor", config: "intake" }],
-    methods: ["spinIn", "spitOut"],
+    methods: [
+      {
+        name: "spinIn",
+        label: "Collect game pieces",
+        description: "Runs the intake inward until collection completes.",
+        mode: "blocking",
+        periodicCall: "updateCollection();",
+        completionCondition: "!collectionInProgress",
+      },
+      "spitOut",
+    ],
   });
   const subPath = join(
     fakeProject,
@@ -297,10 +307,22 @@ try {
     subSrc.includes("package org.firstinspires.ftc.teamcode.intake;") &&
       subSrc.includes('public static final String INTAKE_MOTOR_NAME = "intake";') &&
       subSrc.includes("public RollingIntake(HardwareMap hardwareMap)") &&
+      subSrc.includes("@ftc-label Collect game pieces") &&
+      subSrc.includes("@ftc-mode blocking") &&
+      subSrc.includes("@ftc-periodic updateCollection();") &&
+      subSrc.includes("@ftc-complete !collectionInProgress") &&
+      subSrc.includes("@ftc-autonomous false") &&
       subSrc.includes("public void spinIn()") &&
       subSrc.includes("public void stop()") &&
       subSrc.includes("intakeMotor.setPower(0);"),
     subSrc.slice(0, 400)
+  );
+  check(
+    "subsystem docs describe Studio action behavior",
+    readFileSync(docPath, "utf8").includes("Runs the intake inward until collection completes.") &&
+      readFileSync(docPath, "utf8").includes("blocking; completes when `!collectionInProgress`") &&
+      readFileSync(docPath, "utf8").includes("Autonomous Studio: included"),
+    readFileSync(docPath, "utf8").slice(0, 800)
   );
   const testSrc = existsSync(testPath) ? readFileSync(testPath, "utf8") : "";
   check(
@@ -312,6 +334,18 @@ try {
     testSrc.slice(0, 400)
   );
   check("index lists subsystem", readFileSync(indexPath, "utf8").includes("RollingIntake"));
+
+  r = await call(client, "create_subsystem", {
+    projectPath: fakeProject,
+    name: "BadRoutine",
+    methods: [{ name: "start", mode: "blocking" }],
+    dryRun: true,
+  });
+  check(
+    "blocking Studio actions require a completion condition",
+    r.isError && r.text.includes('Blocking action "start" needs a completionCondition'),
+    r.text
+  );
 
   r = await call(client, "create_subsystem", { projectPath: fakeProject, name: "RollingIntake", group: "intake" });
   check("create_subsystem refuses overwrite", r.isError && r.text.includes("Refusing to replace"));

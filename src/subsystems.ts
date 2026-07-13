@@ -13,6 +13,7 @@ import {
   resolveProject,
 } from "./paths.js";
 import {
+  ActionMethodInput,
   ConstantSpec,
   Dashboard,
   DependencySpec,
@@ -71,7 +72,7 @@ export interface CreateSubsystemArgs {
   dependencies?: { type: string; name?: string }[];
   constants?: ConstantSpec[];
   dashboard?: Dashboard;
-  methods?: string[];
+  methods?: ActionMethodInput[];
   testOpMode?: boolean;
   overwrite?: boolean;
   dryRun?: boolean;
@@ -122,6 +123,18 @@ export function createSubsystem(args: CreateSubsystemArgs): string {
     }
     if (c.value === undefined || `${c.value}`.trim() === "") {
       throw new ToolError(`Constant "${c.name}" needs a value.`);
+    }
+  }
+  const seenMethods = new Set<string>();
+  for (const method of args.methods ?? []) {
+    const action = typeof method === "string" ? { name: method } : method;
+    if (!/^[a-z_$][A-Za-z0-9_$]*$/.test(action.name)) {
+      throw new ToolError(`Invalid action method name "${action.name}" (use a lower-camel-case Java identifier).`);
+    }
+    if (seenMethods.has(action.name)) throw new ToolError(`Duplicate action method "${action.name}" in ${args.name}.`);
+    seenMethods.add(action.name);
+    if (typeof method !== "string" && method.mode === "blocking" && !method.completionCondition?.trim()) {
+      throw new ToolError(`Blocking action "${method.name}" needs a completionCondition for Autonomous Studio.`);
     }
   }
 

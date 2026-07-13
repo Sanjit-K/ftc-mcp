@@ -422,6 +422,15 @@ const sensorSchema = z.object({
   config: z.string().optional(),
   type: z.enum(["color", "distance", "touch", "analog", "digital", "imu"]),
 });
+const subsystemActionSchema = z.object({
+  name: z.string().describe("Lower-camel-case Java method name, e.g. startOuttakeRoutine"),
+  label: z.string().optional().describe("Human label shown in Autonomous Studio (default: method name humanized)"),
+  description: z.string().optional().describe("Robot-specific behavior shown to the driver/programmer in Autonomous Studio and subsystem docs"),
+  mode: z.enum(["instant", "blocking"]).optional().describe("instant advances immediately; blocking waits for completionCondition"),
+  periodicCall: z.string().optional().describe("Java statement run every autonomous loop while a blocking action is active, e.g. 'handleOuttakeRoutine();'"),
+  completionCondition: z.string().optional().describe("Required for blocking actions; Java boolean expression such as '!outtakeInProgress'"),
+  autonomous: z.boolean().optional().describe("false keeps the method public but hides it from Autonomous Studio (default: true)"),
+});
 
 server.registerTool(
   "create_subsystem",
@@ -429,7 +438,8 @@ server.registerTool(
     title: "Create a subsystem",
     description:
       "Scaffold a plain FTC subsystem class (constructor takes HardwareMap; hardware fields, config-name constants, " +
-      "action methods, and a safety stop()). Also writes a bench-test TeleOp and a markdown doc in docs/. " +
+      "action methods, and a safety stop()). Rich action entries generate @ftc-action JavaDoc metadata used by Autonomous Studio for labels, descriptions, " +
+      "instant/blocking behavior, periodic calls, completion conditions, and autonomous visibility. Also writes a bench-test TeleOp and a markdown doc in docs/. " +
       "This is the recommended way to structure robot code — one class per mechanism (intake, spindexer, turret...).",
     inputSchema: {
       projectPath: projectPathArg,
@@ -471,7 +481,12 @@ server.registerTool(
         .enum(["panels", "ftcdashboard", "none"])
         .optional()
         .describe("Live-tuning system for tunable constants (default: panels, matching install_pedro's Panels)"),
-      methods: z.array(z.string()).optional().describe("Action method names to stub, e.g. ['spinIn','spitOut']"),
+      methods: z
+        .array(z.union([z.string(), subsystemActionSchema]))
+        .optional()
+        .describe(
+          "Actions to scaffold. Strings remain supported. Rich entries generate @ftc-action metadata for Studio labels, descriptions, instant/blocking execution, periodic calls, completion conditions, and autonomous visibility."
+        ),
       testOpMode: z.boolean().optional().describe("Also generate a bench-test TeleOp (default true)"),
       overwrite: z.boolean().optional(),
       dryRun: z.boolean().optional().describe("Validate and preview all generated files without writing them"),

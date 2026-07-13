@@ -147,6 +147,41 @@ The studio binds only to `127.0.0.1` and stops with the FTC Toolchain process. I
 
 When Studio opens an existing Java autonomous, **Update Java safely** patches its starting pose and path builders inside the original class. It preserves imports, annotations, subsystem fields and constructors, `init`/`start`/`loop` behavior, state-machine conditions, helper routines, and custom `followPath` arguments. Timeline changes and added/removed paths require context-aware changes in several parts of the class, so Studio refuses to emit a misleading replacement shell. Ask the agent to call `get_autonomous_studio_draft`; it receives the live visual spec and original source together and can integrate the change without discarding robot code.
 
+#### Autonomous Studio action metadata
+
+`create_subsystem` accepts both legacy method names and rich action definitions. Rich definitions are written into JavaDoc as compile-safe `@ftc-*` tags, repeated in `docs/subsystems/<Name>.md`, and imported by Studio:
+
+```json
+{
+  "name": "startOuttakeRoutine",
+  "label": "Shoot stored pieces",
+  "description": "Transfers and fires every tracked game piece, then restores intake mode.",
+  "mode": "blocking",
+  "periodicCall": "handleOuttakeRoutine();",
+  "completionCondition": "!outtakeInProgress",
+  "autonomous": true
+}
+```
+
+Generated Java uses these tags:
+
+```java
+/**
+ * @ftc-action
+ * @ftc-label Shoot stored pieces
+ * @ftc-description Transfers and fires every tracked game piece, then restores intake mode.
+ * @ftc-mode blocking
+ * @ftc-periodic handleOuttakeRoutine();
+ * @ftc-complete !outtakeInProgress
+ * @ftc-autonomous true
+ */
+public void startOuttakeRoutine() {
+    // TODO: implement
+}
+```
+
+Supported tags are `@ftc-action`, `@ftc-label`, `@ftc-description`, `@ftc-mode`, `@ftc-periodic`, `@ftc-complete`, `@ftc-call`, `@ftc-autonomous`, and `@ftc-default <parameter> <value>`. In a tagged class, Studio imports only tagged actions. Set `@ftc-autonomous false` for public helpers that must not appear in the timeline. Legacy subsystem and automation classes without tags still import their public `void` methods.
+
 **Subsystems** — the recommended way to structure robot code: one plain class per mechanism, with a living markdown knowledge base the LLM reads and updates.
 
 All code generators support `dryRun: true`. This performs the same validation and returns the exact target paths and generated source without touching the filesystem. Use it to review a proposed OpMode, subsystem, calculation helper, or TeleOp before creation or overwrite.

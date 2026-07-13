@@ -19,6 +19,7 @@ type ActionParameter = { name: string; defaultValue: string };
 type ActionDefinition = {
   id: string;
   label: string;
+  description: string;
   mode: "instant" | "blocking";
   javaCall: string;
   periodicCall: string;
@@ -170,8 +171,8 @@ const starter: AutoModel = {
     { id: "Pickup", name: "Pickup", color: "#38bdf8", lineIds: ["pickup-segment-1"], startPoint: { x: 58, y: 76 } },
   ],
   actions: [
-    { id: "spinIntake", label: "Spin intake", mode: "instant", javaCall: "barIntake.spinIntake();", periodicCall: "", completionCondition: "", parameters: [], source: { category: "subsystems", group: "Intake", className: "BarIntake" } },
-    { id: "startOuttakeRoutine", label: "Shoot stored pieces", mode: "blocking", javaCall: "startOuttakeRoutine();", periodicCall: "handleOuttakeRoutine();", completionCondition: "!outtakeInProgress", parameters: [], source: { category: "automations", group: "Scoring", className: "OuttakeRoutine" } },
+    { id: "spinIntake", label: "Spin intake", description: "Runs the bar intake inward to collect game pieces.", mode: "instant", javaCall: "barIntake.spinIntake();", periodicCall: "", completionCondition: "", parameters: [], source: { category: "subsystems", group: "Intake", className: "BarIntake" } },
+    { id: "startOuttakeRoutine", label: "Shoot stored pieces", description: "Transfers and fires every tracked game piece, then restores intake mode.", mode: "blocking", javaCall: "startOuttakeRoutine();", periodicCall: "handleOuttakeRoutine();", completionCondition: "!outtakeInProgress", parameters: [], source: { category: "automations", group: "Scoring", className: "OuttakeRoutine" } },
   ],
   steps: [
     { id: "step-score", type: "path", pathId: "Score" },
@@ -249,6 +250,7 @@ function normalizeAction(raw: any, index: number): ActionDefinition {
   return {
     id,
     label: String(raw.label ?? id.replace(/([a-z])([A-Z])/g, "$1 $2")),
+    description: String(raw.description ?? `Calls ${raw.javaMethod ?? id} on the robot.`),
     mode: raw.mode === "blocking" || raw.kind === "blockingRoutine" ? "blocking" : "instant",
     javaCall: String(raw.javaCall ?? raw.invocation ?? `${raw.javaMethod ?? id}();`),
     periodicCall: String(raw.periodicCall ?? ""),
@@ -826,7 +828,7 @@ export function RichVisualizer() {
 
   function addAction() {
     const id = `action${model.actions.length + 1}`;
-    const action: ActionDefinition = { id, label: "New robot action", mode: "instant", javaCall: `${id}();`, periodicCall: "", completionCondition: "", parameters: [], source: { category: "manual", group: "Manual", className: "Local" } };
+    const action: ActionDefinition = { id, label: "New robot action", description: "Describe exactly what this action changes on the robot.", mode: "instant", javaCall: `${id}();`, periodicCall: "", completionCondition: "", parameters: [], source: { category: "manual", group: "Manual", className: "Local" } };
     setModel((current) => ({ ...current, actions: [...current.actions, action] }));
     setSelectedActionId(id); setAddActionId(id);
   }
@@ -1038,6 +1040,7 @@ function PathEditor({ path, line, updatePath, updateLine, addSegment, removePath
 function ActionEditor({ action, update, remove }: { action: ActionDefinition; update: (patch: Partial<ActionDefinition>) => void; remove: () => void }) {
   return <div className={styles.formStack}>
     <Field label="Action label" value={action.label} onChange={(label) => update({ label })} />
+    <label>Description<textarea value={action.description} onChange={(event) => update({ description: event.target.value })} placeholder="What this action does to the robot and when to use it." /></label>
     <div className={styles.readonlyId}><span>ACTION ID</span><code>{action.id}</code></div>
     {action.source && <div className={styles.behavior}><span>{action.source.category.toUpperCase()} / {action.source.group}</span><p>{action.source.className}{action.source.file ? ` · ${action.source.file}` : ""}</p></div>}
     <label>Execution<select value={action.mode} onChange={(e) => update({ mode: e.target.value as ActionDefinition["mode"] })}><option value="instant">Instant — advance immediately</option><option value="blocking">Blocking — wait until complete</option></select></label>

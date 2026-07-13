@@ -13,15 +13,45 @@ writeFileSync(join(javaRoot, "subsystems/shooting/Intake.java"), `
 package org.firstinspires.ftc.teamcode.subsystems.shooting;
 public class Intake {
   public Intake(Object hardwareMap) {}
+  /**
+   * @ftc-action
+   * @ftc-label Collect game pieces
+   * @ftc-description Runs the intake until its sensor reports a captured game piece.
+   * @ftc-mode blocking
+   * @ftc-periodic intake.update();
+   * @ftc-complete !intake.isBusy()
+   * @ftc-default power 0.75
+   * @ftc-default reverse true
+   */
   public void spin(double power, boolean reverse) {}
+  /**
+   * @ftc-action
+   * @ftc-label Stop intake
+   * @ftc-description Stops the intake motor.
+   * @ftc-mode instant
+   * @ftc-autonomous false
+   */
   public void stop() {}
   public boolean isBusy() { return false; }
   private void hidden() {}
 }
 `);
+writeFileSync(join(javaRoot, "subsystems/Legacy.java"), `
+package org.firstinspires.ftc.teamcode.subsystems;
+public class Legacy {
+  public void open() {}
+  public void stop() {}
+}
+`);
 writeFileSync(join(javaRoot, "automations/ScoreRoutine.java"), `
 package org.firstinspires.ftc.teamcode.automations;
 public class ScoreRoutine {
+  /**
+   * @ftc-action
+   * @ftc-label Score target
+   * @ftc-description Selects and scores the requested field target.
+   * @ftc-mode instant
+   */
   public static void score(String target) {}
 }
 `);
@@ -54,16 +84,23 @@ public class PreservedAuto extends OpMode {
 
 try {
   const actions = discoverRobotActions(project);
-  assert.equal(actions.length, 3);
-  assert.deepEqual(actions.map((action) => action.source.category), ["automations", "subsystems", "subsystems"]);
+  assert.equal(actions.length, 4);
+  assert.deepEqual(actions.map((action) => action.source.category), ["automations", "subsystems", "subsystems", "subsystems"]);
   const spin = actions.find((action) => action.javaMethod === "spin");
   assert.ok(spin);
   assert.equal(spin.source.group, "shooting");
+  assert.equal(spin.label, "Collect game pieces");
+  assert.equal(spin.description, "Runs the intake until its sensor reports a captured game piece.");
+  assert.equal(spin.mode, "blocking");
+  assert.equal(spin.periodicCall, "intake.update();");
+  assert.equal(spin.completionCondition, "!intake.isBusy()");
   assert.equal(spin.javaCall, "intake.spin({power}, {reverse});");
   assert.deepEqual(spin.parameters, [
-    { name: "power", defaultValue: "0" },
-    { name: "reverse", defaultValue: "false" },
+    { name: "power", defaultValue: "0.75" },
+    { name: "reverse", defaultValue: "true" },
   ]);
+  assert.ok(actions.some((action) => action.source.className === "Legacy" && action.javaMethod === "stop"));
+  assert.ok(!actions.some((action) => action.source.className === "Intake" && action.javaMethod === "stop"));
   assert.ok(!actions.some((action) => action.javaMethod === "hidden" || action.javaMethod === "loop" || action.javaMethod === "isBusy"));
 
   const result = await openAutonomousStudio({ projectPath: project, port: 0, openBrowser: false });
@@ -71,7 +108,7 @@ try {
   assert.ok(url);
   const payload = await fetch(new URL("/studio-data.json", url)).then((response) => response.json());
   assert.equal(payload.projectPath, project);
-  assert.equal(payload.actions.length, 3);
+  assert.equal(payload.actions.length, 4);
   assert.match(result, /not published online/);
 
   await closeAutonomousStudio();

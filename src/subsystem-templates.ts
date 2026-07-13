@@ -50,6 +50,29 @@ export interface ConstantSpec {
 
 export type Dashboard = "panels" | "ftcdashboard" | "none";
 
+export interface ActionMethodSpec {
+  name: string;
+  label?: string;
+  description?: string;
+  mode?: "instant" | "blocking";
+  periodicCall?: string;
+  completionCondition?: string;
+  /** false keeps a public helper callable in Java but hides it from Autonomous Studio. */
+  autonomous?: boolean;
+}
+
+export type ActionMethodInput = string | ActionMethodSpec;
+
+export interface NormalizedActionMethod {
+  name: string;
+  label: string;
+  description: string;
+  mode: "instant" | "blocking";
+  periodicCall: string;
+  completionCondition: string;
+  autonomous: boolean;
+}
+
 export interface SubsystemSpec {
   packageName: string;
   className: string;
@@ -61,8 +84,8 @@ export interface SubsystemSpec {
   dependencies: DependencySpec[];
   constants: ConstantSpec[];
   dashboard: Dashboard;
-  /** Action method names to stub, e.g. ["spinIn", "spitOut"]. */
-  methods: string[];
+  /** Action methods to stub. Strings remain supported; rich entries drive Autonomous Studio metadata. */
+  methods: ActionMethodInput[];
 }
 
 const DASHBOARD_IMPORT: Record<Exclude<Dashboard, "none">, string> = {
@@ -105,20 +128,58 @@ export function toSnake(name: string): string {
 
 const CONST = (name: string) => `${toUpperSnake(name)}_NAME`;
 
-/** Ensure a stop() method is always present, first-normalized to lowercase. */
-export function normalizeMethods(methods: string[]): { actions: string[]; hasStop: boolean } {
-  const actions: string[] = [];
+function humanize(name: string): string {
+  return name
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+/** Ensure a stop() method is always present while preserving string-only compatibility. */
+export function normalizeMethods(methods: ActionMethodInput[]): { actions: NormalizedActionMethod[]; hasStop: boolean } {
+  const actions: NormalizedActionMethod[] = [];
   let hasStop = false;
-  for (const m of methods) {
-    const name = m.trim();
+  for (const method of methods) {
+    const raw = typeof method === "string" ? { name: method } : method;
+    const name = raw.name.trim();
     if (!name) continue;
     if (name.toLowerCase() === "stop") {
       hasStop = true;
       continue;
     }
-    if (!actions.includes(name)) actions.push(name);
+    if (actions.some((action) => action.name === name)) continue;
+    const label = raw.label?.trim() || humanize(name);
+    actions.push({
+      name,
+      label,
+      description: raw.description?.trim() || `Runs the ${label.toLowerCase()} action.`,
+      mode: raw.mode === "blocking" ? "blocking" : "instant",
+      periodicCall: raw.periodicCall?.trim() ?? "",
+      completionCondition: raw.completionCondition?.trim() ?? "",
+      autonomous: raw.autonomous !== false,
+    });
   }
   return { actions, hasStop };
+}
+
+function docValue(value: string): string {
+  return value.replace(/\*\//g, "* /").replace(/[\r\n]+/g, " ").trim();
+}
+
+function actionJavaDoc(action: NormalizedActionMethod): string {
+  return (
+    `    /**\n` +
+    `     * ${docValue(action.description)}\n` +
+    `     *\n` +
+    `     * @ftc-action\n` +
+    `     * @ftc-label ${docValue(action.label)}\n` +
+    `     * @ftc-description ${docValue(action.description)}\n` +
+    `     * @ftc-mode ${action.mode}\n` +
+    `     * @ftc-autonomous ${action.autonomous}\n` +
+    (action.periodicCall ? `     * @ftc-periodic ${docValue(action.periodicCall)}\n` : "") +
+    (action.completionCondition ? `     * @ftc-complete ${docValue(action.completionCondition)}\n` : "") +
+    `     */`
+  );
 }
 
 export function generateSubsystemClass(spec: SubsystemSpec): string {
@@ -209,8 +270,8 @@ export function generateSubsystemClass(spec: SubsystemSpec): string {
   const methodBlocks: string[] = [];
   for (const action of actions) {
     methodBlocks.push(
-      `    /** TODO: implement ${action}. */\n` +
-        `    public void ${action}() {\n` +
+      `${actionJavaDoc(action)}\n` +
+        `    public void ${action.name}() {\n` +
         `        // TODO\n` +
         `    }`
     );
@@ -220,7 +281,18 @@ export function generateSubsystemClass(spec: SubsystemSpec): string {
     motorFieldNames.length > 0
       ? motorFieldNames.map((n) => `        ${n}.setPower(0);`).join("\n")
       : "        // No powered actuators to stop.";
-  methodBlocks.push(`    /** Cut power to all actuators. Safe to call any time. */\n    public void stop() {\n${stopBody}\n    }`);
+  methodBlocks.push(
+    `    /**\n` +
+    `     * Cut power to all actuators. Safe to call any time.\n` +
+    `     *\n` +
+    `     * @ftc-action\n` +
+    `     * @ftc-label Emergency stop\n` +
+    `     * @ftc-description Cuts power to every actuator in this subsystem.\n` +
+    `     * @ftc-mode instant\n` +
+    `     * @ftc-autonomous false\n` +
+    `     */\n` +
+    `    public void stop() {\n${stopBody}\n    }`
+  );
 
   const importLines = [...imports].sort().map((i) => `import ${i};`).join("\n");
   const classDoc = spec.description
@@ -291,16 +363,16 @@ export function generateTestOpMode(spec: SubsystemSpec, group: string): string {
     const btn = TEST_BUTTONS[i];
     bindings.push(
       `        if (gamepad1.${btn}WasPressed()) {\n` +
-        `            ${field}.${action}();\n` +
+        `            ${field}.${action.name}();\n` +
         `        }`
     );
   });
   const overflow = actions.length > TEST_BUTTONS.length
-    ? `        // Not enough buttons for: ${actions.slice(TEST_BUTTONS.length).join(", ")}\n`
+    ? `        // Not enough buttons for: ${actions.slice(TEST_BUTTONS.length).map((action) => action.name).join(", ")}\n`
     : "";
   const legend = actions
     .slice(0, TEST_BUTTONS.length)
-    .map((a, i) => `     *   ${TEST_BUTTONS[i]} -> ${a}()`)
+    .map((action, i) => `     *   ${TEST_BUTTONS[i]} -> ${action.name}()`)
     .join("\n");
 
   return (
@@ -377,7 +449,12 @@ export function generateSubsystemDoc(
   for (const sensor of spec.sensors) hw.push(row(sensor.name, SENSOR_JAVA_TYPE[sensor.type], sensor.config));
 
   const { actions, hasStop } = normalizeMethods(spec.methods);
-  const fnLines = actions.map((a) => `- \`${a}()\` — TODO: describe`);
+  const fnLines = actions.map((action) => {
+    const behavior = action.mode === "blocking"
+      ? `blocking; completes when \`${action.completionCondition}\`${action.periodicCall ? `; periodic \`${action.periodicCall}\`` : ""}`
+      : "instant";
+    return `- \`${action.name}()\` — **${action.label}**: ${action.description} (${behavior}; Autonomous Studio: ${action.autonomous ? "included" : "hidden"})`;
+  });
   fnLines.push("- `stop()` — cut power to all actuators");
 
   const depLine = spec.dependencies.length

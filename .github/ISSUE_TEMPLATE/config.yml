@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Sanjit-K/ftc-toolchain/security/advisories/new
+    about: Report vulnerabilities privately instead of opening a public issue.
+  - name: Documentation
+    url: https://sanjit-k.github.io/ftc-toolchain/docs/
+    about: Read installation, deployment, configuration, and troubleshooting guidance.

@@ -1,0 +1,35 @@
+name: Documentation issue
+description: Report missing, outdated, or confusing documentation
+title: "[Docs]: "
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link the page or name the file and section.
+      placeholder: "README.md — automatic Wi-Fi switching"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: improvement
+    attributes:
+      label: Suggested improvement
+      description: Include corrected wording, commands, or an example if you have one.
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is affected?
+      options:
+        - New users
+        - Existing FTC teams
+        - Contributors
+        - Maintainers
+        - Everyone
+    validations:
+      required: true

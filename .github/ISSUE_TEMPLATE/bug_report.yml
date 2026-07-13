@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a reproducible problem with FTC Toolchain
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Search existing issues first and remove passwords, tokens, student information, and private team data from everything you share.
+  - type: input
+    id: version
+    attributes:
+      label: FTC Toolchain version
+      description: Use the npm version or commit SHA you tested.
+      placeholder: "0.2.0 or a1593bc"
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: AI client
+      options:
+        - Codex
+        - Claude Code
+        - Claude Desktop
+        - Another MCP client
+        - Direct MCP test client
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment details
+      description: Include Node, FTC SDK, Java, Android SDK, and adb versions that matter.
+      placeholder: "Node 22, JDK 17, FTC SDK 10.x, platform-tools 35.x"
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Explain the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest repeatable sequence, including the MCP tool and sanitized arguments.
+      placeholder: |
+        1. Register the server with ...
+        2. Call inspect_project with ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: Paste sanitized tool output, stack traces, or doctor results. Use a code block.
+      render: shell
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Did this involve a physical robot or network switch?
+      options:
+        - No
+        - Yes, direct USB or ADB
+        - Yes, automatic Wi-Fi switching
+        - Yes, another hardware path
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety and privacy
+      options:
+        - label: I removed credentials, student information, and private team data.
+          required: true
+        - label: I did not perform network or deployment testing during an official match.
+          required: true

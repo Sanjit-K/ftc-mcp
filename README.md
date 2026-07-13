@@ -232,3 +232,9 @@ npm run dev
 ```
 
 The website content brief is versioned in [`website.md`](website.md).
+
+## Contributing and community
+
+Contributions from FTC students, mentors, alumni, and developers are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, use the repository's guided issue forms for bugs and proposals, and see [SUPPORT.md](SUPPORT.md) for setup help. Robot-facing pull requests must follow the [real robot test policy](HARDWARE_TESTING.md) before merge; automated or mock-only testing is not sufficient.
+
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report suspected vulnerabilities privately according to [SECURITY.md](SECURITY.md), never in a public issue.

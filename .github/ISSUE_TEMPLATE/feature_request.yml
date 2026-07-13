@@ -1,0 +1,57 @@
+name: Feature request
+description: Propose a focused improvement to an FTC development workflow
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the real FTC workflow first. Large changes should be discussed here before implementation begins.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What is difficult, repetitive, unsafe, or impossible today? Who encounters it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain what the user or AI client should be able to do.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - MCP knowledge tools
+        - Project scaffolding
+        - Subsystems or TeleOp generation
+        - Build or Gradle
+        - Robot, ADB, or logs
+        - Wi-Fi deployment
+        - Documentation or website
+        - Cross-platform support
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example interaction
+      description: Show an ideal prompt, tool call, command, or result if useful.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: How do teams handle this today, and why is that insufficient?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This request describes a specific FTC development workflow.
+          required: true
+        - label: I searched existing issues for the same request.
+          required: true

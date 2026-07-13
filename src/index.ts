@@ -38,7 +38,7 @@ import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
 import { runWifiDeployWorker, startWifiDeploy, wifiDeployStatus } from "./network.js";
 import { refactorAutoForVisualizer } from "./autonomous.js";
-import { openAutonomousStudio } from "./studio.js";
+import { getAutonomousStudioDraft, openAutonomousStudio } from "./studio.js";
 
 const VERSION = "0.3.0";
 
@@ -386,7 +386,8 @@ server.registerTool(
     title: "Open the local Autonomous Studio",
     description:
       "Start the rich Pedro Pathing autonomous editor on 127.0.0.1. It can load an existing Java auto and automatically imports public robot commands " +
-      "from TeamCode subsystem and automation folders, organized by source. The studio is served only by this local FTC Toolchain process and is never uploaded.",
+      "from TeamCode subsystem and automation folders, organized by source. Existing-auto export patches path geometry in the original class instead of replacing custom robot logic; " +
+      "timeline and structural edits are synced for get_autonomous_studio_draft. The studio is served only by this local FTC Toolchain process and is never uploaded.",
     inputSchema: {
       projectPath: projectPathArg,
       sourceFile: z.string().optional().describe("Existing autonomous Java file relative to the FTC project; omit to start from scratch"),
@@ -395,6 +396,18 @@ server.registerTool(
     },
   },
   guard(async (args: Parameters<typeof openAutonomousStudio>[0]) => openAutonomousStudio(args))
+);
+
+server.registerTool(
+  "get_autonomous_studio_draft",
+  {
+    title: "Read the open Autonomous Studio draft",
+    description:
+      "Read the live rich autonomous spec from the currently open local Studio together with its original Java source. " +
+      "Use this before integrating timeline, action, or path-structure changes so custom imports, annotations, subsystem setup, lifecycle logic, helper routines, and state conditions are preserved.",
+    inputSchema: {},
+  },
+  guard(async () => getAutonomousStudioDraft())
 );
 
 // ---------- Subsystems (robot architecture layer) ----------

@@ -42,6 +42,12 @@ export interface ExtractedAutonomous {
   actionCount: number;
 }
 
+export interface PreservedJavaResult {
+  java: string;
+  warnings: string[];
+  timelineChanged: boolean;
+}
+
 const COLORS = ["#22c55e", "#3b82f6", "#f97316", "#a855f7", "#ef4444", "#06b6d4", "#eab308"];
 
 function round(value: number): number {
@@ -185,6 +191,21 @@ function pathBuilderAssignments(source: string): { name: string; body: string }[
     const start = match.index! + match[0].length;
     const build = source.indexOf(".build()", start);
     if (build >= 0) results.push({ name: match[1], body: source.slice(start, build) });
+  }
+  return results;
+}
+
+type PathBuilderSpan = { name: string; target: string; start: number; end: number; indent: string };
+
+function pathBuilderSpans(source: string): PathBuilderSpan[] {
+  const results: PathBuilderSpan[] = [];
+  const regex = /(^[\t ]*)((?:[A-Za-z_$][\w$]*\.)?([A-Za-z_$][\w$]*))\s*=\s*follower\.pathBuilder\s*\(\s*\)/gm;
+  for (const match of source.matchAll(regex)) {
+    const build = source.indexOf(".build()", match.index! + match[0].length);
+    if (build < 0) continue;
+    const semicolon = source.indexOf(";", build + ".build()".length);
+    if (semicolon < 0) continue;
+    results.push({ name: match[3], target: match[2], start: match.index!, end: semicolon + 1, indent: match[1] });
   }
   return results;
 }
@@ -387,6 +408,186 @@ export function extractAutonomous(source: string, sourceName = "Auto.java"): Ext
     extractionWarnings: warnings,
   };
   return { spec, visualizer, className, warnings, pathCount: paths.length, stepCount: steps.length, actionCount: actions.length };
+}
+
+type EditableLine = {
+  id: string;
+  endPoint: VisualizerPoint;
+  controlPoints: XY[];
+};
+
+type EditablePath = {
+  id: string;
+  lineIds: string[];
+  startPoint: XY;
+};
+
+function finitePoint(value: unknown, label: string): XY {
+  if (!value || typeof value !== "object") throw new ToolError(`${label} is missing.`);
+  const point = value as Record<string, unknown>;
+  const x = Number(point.x);
+  const y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new ToolError(`${label} must contain finite x and y coordinates.`);
+  return { x: round(x), y: round(y) };
+}
+
+function finiteNumber(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new ToolError(`${label} must be a finite number.`);
+  return round(parsed);
+}
+
+function editableModel(spec: Record<string, unknown>): {
+  paths: EditablePath[];
+  lines: EditableLine[];
+  startPose: Pose;
+  steps: Record<string, unknown>[];
+} {
+  const visualizer = spec.visualizer && typeof spec.visualizer === "object"
+    ? spec.visualizer as Record<string, unknown>
+    : null;
+  const rawLines = Array.isArray(visualizer?.lines) ? visualizer.lines : [];
+  const lines = rawLines.map((value, index): EditableLine => {
+    if (!value || typeof value !== "object") throw new ToolError(`Path segment ${index + 1} is invalid.`);
+    const line = value as Record<string, unknown>;
+    const endpoint = finitePoint(line.endPoint, `Path segment ${index + 1} endpoint`);
+    const heading = line.endPoint as Record<string, unknown>;
+    let endPoint: VisualizerPoint;
+    if (heading.heading === "linear") {
+      endPoint = {
+        ...endpoint,
+        heading: "linear",
+        startDeg: finiteNumber(heading.startDeg, `Path segment ${index + 1} start heading`),
+        endDeg: finiteNumber(heading.endDeg, `Path segment ${index + 1} end heading`),
+      };
+    } else if (heading.heading === "tangential") {
+      endPoint = { ...endpoint, heading: "tangential", reverse: Boolean(heading.reverse) };
+    } else {
+      endPoint = { ...endpoint, heading: "constant", degrees: finiteNumber(heading.degrees ?? 0, `Path segment ${index + 1} heading`) };
+    }
+    const controlPoints = Array.isArray(line.controlPoints)
+      ? line.controlPoints.map((point, pointIndex) => finitePoint(point, `Path segment ${index + 1} control point ${pointIndex + 1}`))
+      : [];
+    return { id: String(line.id ?? ""), endPoint, controlPoints };
+  });
+  const rawPaths = Array.isArray(spec.paths) ? spec.paths : [];
+  const paths = rawPaths.map((value, index): EditablePath => {
+    if (!value || typeof value !== "object") throw new ToolError(`Path ${index + 1} is invalid.`);
+    const path = value as Record<string, unknown>;
+    return {
+      id: String(path.id ?? ""),
+      lineIds: Array.isArray(path.lineIds) ? path.lineIds.map(String) : [],
+      startPoint: finitePoint(path.startPoint, `Path ${String(path.id ?? index + 1)} start point`),
+    };
+  });
+  const start = finitePoint(spec.startPose, "Robot start pose");
+  const headingDegrees = finiteNumber((spec.startPose as Record<string, unknown>).headingDegrees ?? 0, "Robot start heading");
+  return {
+    paths,
+    lines,
+    startPose: { ...start, headingDegrees: round(headingDegrees) },
+    steps: Array.isArray(spec.steps) ? spec.steps.filter((step): step is Record<string, unknown> => Boolean(step) && typeof step === "object") : [],
+  };
+}
+
+function javaNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(round(value));
+}
+
+function javaPose(point: XY): string {
+  return `new Pose(${javaNumber(point.x)}, ${javaNumber(point.y)})`;
+}
+
+function javaHeading(point: VisualizerPoint): string {
+  if (point.heading === "linear") {
+    return `.setLinearHeadingInterpolation(Math.toRadians(${javaNumber(point.startDeg)}), Math.toRadians(${javaNumber(point.endDeg)}))`;
+  }
+  if (point.heading === "tangential") return `.setTangentHeadingInterpolation()${point.reverse ? ".setReversed()" : ""}`;
+  return `.setConstantHeadingInterpolation(Math.toRadians(${javaNumber(point.degrees)}))`;
+}
+
+function renderPathBuilder(path: EditablePath, lineMap: Map<string, EditableLine>, indent: string, target = path.id): string {
+  let cursor = path.startPoint;
+  const output = [`${indent}${target} = follower.pathBuilder()`];
+  for (const lineId of path.lineIds) {
+    const line = lineMap.get(lineId);
+    if (!line) throw new ToolError(`${path.id} references missing segment ${lineId}.`);
+    const points = [cursor, ...line.controlPoints, line.endPoint].map(javaPose).join(", ");
+    output.push(`${indent}    .addPath(new ${line.controlPoints.length ? "BezierCurve" : "BezierLine"}(${points}))`);
+    output.push(`${indent}    ${javaHeading(line.endPoint)}`);
+    cursor = line.endPoint;
+  }
+  output.push(`${indent}    .build();`);
+  return output.join("\n");
+}
+
+function canonicalSteps(steps: Record<string, unknown>[]): string[] {
+  return steps.flatMap((step) => {
+    if (step.type === "path") return [`path:${String(step.pathId ?? "")}`];
+    if (step.type === "wait") return [`wait:${Number(step.durationMs)}`];
+    if (step.type === "action") return [`action:${String(step.actionId ?? step.action ?? "")}`];
+    return [];
+  });
+}
+
+/**
+ * Update the visual parts of an imported autonomous without regenerating its
+ * robot-specific class. Imports, annotations, fields, lifecycle methods,
+ * subsystem setup, overload arguments, and helper routines remain byte-for-byte
+ * intact outside the starting-pose and path-builder expressions.
+ */
+export function generatePreservedJava(
+  originalSource: string,
+  spec: Record<string, unknown>,
+  sourceName = "Auto.java"
+): PreservedJavaResult {
+  const model = editableModel(spec);
+  const extracted = extractAutonomous(originalSource, sourceName);
+  const baselineSteps = canonicalSteps((extracted.spec.steps as Record<string, unknown>[]) ?? []);
+  const nextSteps = canonicalSteps(model.steps);
+  const timelineChanged = JSON.stringify(baselineSteps) !== JSON.stringify(nextSteps);
+  if (timelineChanged) {
+    throw new ToolError(
+      "The Studio timeline differs from the imported Java state machine. FTC Toolchain will not flatten or overwrite custom robot logic. " +
+      "Ask the agent to call get_autonomous_studio_draft and integrate the timeline into the existing source; path-only edits can be exported directly."
+    );
+  }
+
+  const spans = pathBuilderSpans(originalSource);
+  const originalNames = new Set(spans.map((span) => span.name));
+  const nextNames = new Set(model.paths.map((path) => path.id));
+  const added = [...nextNames].filter((name) => !originalNames.has(name));
+  const removed = [...originalNames].filter((name) => !nextNames.has(name));
+  if (added.length || removed.length) {
+    throw new ToolError(
+      "The set of paths changed and requires an agent-assisted source refactor. " +
+      `${added.length ? `Added: ${added.join(", ")}. ` : ""}${removed.length ? `Removed: ${removed.join(", ")}. ` : ""}` +
+      "Ask the agent to call get_autonomous_studio_draft so it can update fields, builders, and state-machine references together."
+    );
+  }
+
+  const pathMap = new Map(model.paths.map((path) => [path.id, path]));
+  const lineMap = new Map(model.lines.map((line) => [line.id, line]));
+  let java = originalSource;
+  for (const span of [...spans].sort((a, b) => b.start - a.start)) {
+    const path = pathMap.get(span.name);
+    if (!path) continue;
+    java = java.slice(0, span.start) + renderPathBuilder(path, lineMap, span.indent, span.target) + java.slice(span.end);
+  }
+
+  const startingCall = java.search(/follower\.setStartingPose\s*\(/);
+  if (startingCall < 0) throw new ToolError("The imported source no longer contains follower.setStartingPose(...).");
+  const open = java.indexOf("(", startingCall);
+  const close = matchingParen(java, open);
+  if (close < 0) throw new ToolError("Could not safely locate the end of follower.setStartingPose(...).");
+  const pose = `new Pose(${javaNumber(model.startPose.x)}, ${javaNumber(model.startPose.y)}, Math.toRadians(${javaNumber(model.startPose.headingDegrees ?? 0)}))`;
+  java = java.slice(0, open + 1) + pose + java.slice(close);
+
+  return {
+    java,
+    timelineChanged: false,
+    warnings: extracted.warnings.filter((warning) => !warning.includes("preceding endpoint")),
+  };
 }
 
 function projectFile(project: string, file: string): string {

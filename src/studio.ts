@@ -1,8 +1,8 @@
-import { createServer, Server } from "node:http";
+import { createServer, IncomingMessage, Server } from "node:http";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
-import { extractAutonomous } from "./autonomous.js";
+import { extractAutonomous, generatePreservedJava } from "./autonomous.js";
 import { REPO_ROOT, TEAMCODE_JAVA_SUBDIR, ToolError, resolveProject } from "./paths.js";
 
 export interface StudioAction {
@@ -41,12 +41,51 @@ const MIME: Record<string, string> = {
 };
 
 let activeServer: Server | null = null;
+let activeSession: {
+  project: string;
+  sourceFile?: string;
+  originalSource?: string;
+  draft?: Record<string, unknown>;
+} | null = null;
 
 export async function closeAutonomousStudio(): Promise<void> {
-  if (!activeServer) return;
   const server = activeServer;
   activeServer = null;
+  activeSession = null;
+  if (!server) return;
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+}
+
+async function jsonBody(request: IncomingMessage, maximumBytes = 2_000_000): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maximumBytes) throw new ToolError("Studio request is too large.");
+    chunks.push(buffer);
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected an object");
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new ToolError("Studio sent invalid JSON.");
+  }
+}
+
+export function getAutonomousStudioDraft(): string {
+  if (!activeSession) throw new ToolError("No Autonomous Studio session is running. Open one first.");
+  if (!activeSession.draft) throw new ToolError("The open Autonomous Studio has not synced a draft yet.");
+  return JSON.stringify({
+    projectPath: activeSession.project,
+    sourceFile: activeSession.sourceFile ?? null,
+    originalJava: activeSession.originalSource ?? null,
+    studioSpec: activeSession.draft,
+    instructions: activeSession.originalSource
+      ? "Preserve imports, annotations, subsystem fields, lifecycle methods, periodic loop logic, helper routines, path overload arguments, and unrelated state-machine conditions. Integrate the studioSpec geometry/timeline into this existing class instead of generating a replacement shell."
+      : "Generate a complete autonomous from studioSpec and the robot actions available in the project.",
+  }, null, 2);
 }
 
 function walkJava(dir: string): string[] {
@@ -188,6 +227,12 @@ function localStudioPayload(project: string, sourceFile?: string): Record<string
     actions,
     spec: { ...extracted.spec, actions },
     warnings: extracted.warnings,
+    sourceExport: {
+      mode: "preserve",
+      sourceFile: relative(project, autoFile),
+      directEdits: ["path geometry", "heading interpolation", "starting pose"],
+      agentEdits: ["timeline changes", "new or removed paths", "robot action logic"],
+    },
   };
 }
 
@@ -216,13 +261,46 @@ function openUrl(url: string): void {
 export async function openAutonomousStudio(args: OpenStudioArgs = {}): Promise<string> {
   const project = resolveProject(args.projectPath);
   const payload = localStudioPayload(project, args.sourceFile);
+  const sourcePath = args.sourceFile ? projectFile(project, args.sourceFile) : undefined;
   const root = studioRoot();
   await closeAutonomousStudio();
+  activeSession = {
+    project,
+    sourceFile: sourcePath ? relative(project, sourcePath) : undefined,
+    originalSource: sourcePath ? readFileSync(sourcePath, "utf8") : undefined,
+    draft: payload.spec && typeof payload.spec === "object" ? payload.spec as Record<string, unknown> : undefined,
+  };
   const server = createServer((request, response) => {
     const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
     if (requestUrl.pathname === "/studio-data.json") {
       response.writeHead(200, { "Content-Type": MIME[".json"], "Cache-Control": "no-store" });
       response.end(JSON.stringify(payload));
+      return;
+    }
+    if (requestUrl.pathname === "/studio-draft" && request.method === "POST") {
+      void jsonBody(request).then((draft) => {
+        if (activeSession) activeSession.draft = draft;
+        response.writeHead(204, { "Cache-Control": "no-store" });
+        response.end();
+      }).catch((error) => {
+        response.writeHead(400, { "Content-Type": MIME[".json"], "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Could not save Studio draft." }));
+      });
+      return;
+    }
+    if (requestUrl.pathname === "/generate-java" && request.method === "POST") {
+      void jsonBody(request).then((draft) => {
+        if (!activeSession?.originalSource || !activeSession.sourceFile) {
+          throw new ToolError("Source-preserving export is available only when Studio was opened with an existing Java autonomous.");
+        }
+        activeSession.draft = draft;
+        const result = generatePreservedJava(activeSession.originalSource, draft, activeSession.sourceFile);
+        response.writeHead(200, { "Content-Type": MIME[".json"], "Cache-Control": "no-store" });
+        response.end(JSON.stringify(result));
+      }).catch((error) => {
+        response.writeHead(409, { "Content-Type": MIME[".json"], "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Could not safely update Java." }));
+      });
       return;
     }
     if (requestUrl.pathname === "/") {

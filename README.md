@@ -128,6 +128,7 @@ Start a new session with `inspect_project`. It reports which FTC project is sele
 | `install_pedro` | Add Pedro Pathing to a project (Gradle deps, compileSdk 34, `Constants.java` scaffold) |
 | `refactor_auto_for_visualizer` | Import an existing Pedro Java auto into an editable `.ftcauto.json` timeline plus a `.pp` file that opens in Pedro Visualizer; paths, waits, and robot actions are extracted conservatively |
 | `open_autonomous_studio` | Start the rich autonomous editor on `127.0.0.1`, optionally load an existing Java auto, and import public commands from local subsystem and automation folders |
+| `get_autonomous_studio_draft` | Give the agent the live Studio spec together with the original Java so it can integrate structural edits without replacing custom robot logic |
 
 For an existing autonomous, run `refactor_auto_for_visualizer` with its Java path. The generated `.pp` contains the geometry and waits supported by today's Pedro Visualizer. The matching `.ftcauto.json` preserves the complete path/action timeline—such as `spinIntake`, shoot, transfer, and other robot-specific routines—for human review and future code generation. Any expression or transition the importer cannot prove is listed as a review warning instead of being silently changed.
 
@@ -143,6 +144,8 @@ npx ftc-toolchain studio ~/FtcRobotController \
 ```
 
 The studio binds only to `127.0.0.1` and stops with the FTC Toolchain process. It is bundled in the npm package and does not use a hosted web service. Its action library scans Java files under `subsystems/` and `automations/` (plus ftc-toolchain-generated subsystem classes), imports each public `void` method, preserves method parameters as editable action inputs, and groups commands by folder and class. Paths, actions, waits, and timeline order remain editable without an LLM.
+
+When Studio opens an existing Java autonomous, **Update Java safely** patches its starting pose and path builders inside the original class. It preserves imports, annotations, subsystem fields and constructors, `init`/`start`/`loop` behavior, state-machine conditions, helper routines, and custom `followPath` arguments. Timeline changes and added/removed paths require context-aware changes in several parts of the class, so Studio refuses to emit a misleading replacement shell. Ask the agent to call `get_autonomous_studio_draft`; it receives the live visual spec and original source together and can integrate the change without discarding robot code.
 
 **Subsystems** — the recommended way to structure robot code: one plain class per mechanism, with a living markdown knowledge base the LLM reads and updates.
 

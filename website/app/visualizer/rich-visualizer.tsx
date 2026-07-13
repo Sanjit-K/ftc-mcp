@@ -39,6 +39,12 @@ type Step =
   | { id: string; type: "wait"; durationMs: number; label: string }
   | { id: string; type: "action"; actionId: string; args: Record<string, string> };
 type JavaSettings = { packageName: string; className: string; opModeName: string; group: string };
+type SourceExport = {
+  mode: "preserve";
+  sourceFile: string;
+  directEdits: string[];
+  agentEdits: string[];
+};
 type AutoModel = {
   schemaVersion: 1;
   kind: "ftc-toolchain/autonomous";
@@ -537,6 +543,9 @@ export function RichVisualizer() {
   const [selectedStep, setSelectedStep] = useState(0);
   const [notice, setNotice] = useState("Example auto loaded");
   const [showCode, setShowCode] = useState(false);
+  const [generatedJava, setGeneratedJava] = useState("");
+  const [generationNote, setGenerationNote] = useState("");
+  const [sourceExport, setSourceExport] = useState<SourceExport | null>(null);
   const [addPathId, setAddPathId] = useState(starter.paths[0].id);
   const [addActionId, setAddActionId] = useState(starter.actions[0].id);
   const [drag, setDrag] = useState<{ kind: "end" | "control"; pathId: string; lineId: string; index?: number } | null>(null);
@@ -556,7 +565,7 @@ export function RichVisualizer() {
   const dragTargetRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const issues = useMemo(() => validate(model), [model]);
-  const java = useMemo(() => generateJava(model), [model]);
+  const genericJava = useMemo(() => generateJava(model), [model]);
   const selectedPath = model.paths.find((path) => path.id === selectedPathId) ?? model.paths[0];
   const selectedLine = model.lines.find((line) => line.id === selectedLineId) ?? model.lines.find((line) => selectedPath?.lineIds.includes(line.id));
   const selectedAction = model.actions.find((action) => action.id === selectedActionId);
@@ -595,6 +604,17 @@ export function RichVisualizer() {
   }, [model]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      fetch("/studio-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(richSpec(model)),
+      }).catch(() => { /* The public/static page has no local project bridge. */ });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [model]);
+
+  useEffect(() => {
     let cancelled = false;
     fetch("/studio-data.json", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return null;
@@ -602,6 +622,7 @@ export function RichVisualizer() {
     }).then((local) => {
       if (cancelled || !local) return;
       const discovered = Array.isArray(local.actions) ? local.actions.map(normalizeAction) : [];
+      setSourceExport(local.sourceExport?.mode === "preserve" ? local.sourceExport as SourceExport : null);
       if (local.spec) {
         const imported = modelFromFiles({ ...local.spec, actions: discovered }, null);
         setModel(imported);
@@ -765,6 +786,7 @@ export function RichVisualizer() {
       }
       const imported = modelFromFiles(spec, pp);
       setModel(imported);
+      setSourceExport(null);
       setSelectedPathId(imported.paths[0]?.id ?? "");
       setSelectedLineId(imported.paths[0]?.lineIds[0] ?? "");
       setSelectedActionId(null);
@@ -856,6 +878,33 @@ export function RichVisualizer() {
     setModel((current) => ensureTimelineContinuity({ ...current, startPose: { ...current.startPose, ...patch } }));
   }
 
+  async function openGeneratedJava() {
+    if (!sourceExport) {
+      setGeneratedJava(genericJava);
+      setGenerationNote("This autonomous was created from scratch, so Studio generated the complete Java class.");
+      setShowCode(true);
+      return;
+    }
+    setNotice(`Updating ${sourceExport.sourceFile} without replacing robot logic…`);
+    try {
+      const response = await fetch("/generate-java", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(richSpec(model)),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(String(result.error ?? "Could not safely update the imported Java."));
+      setGeneratedJava(String(result.java));
+      setGenerationNote(
+        "Source-preserving export: Studio updated the starting pose and path builders inside the original class. Imports, annotations, subsystem setup, lifecycle code, state logic, action routines, and custom followPath arguments were retained."
+      );
+      setNotice(`Preserved robot logic from ${sourceExport.sourceFile}`);
+      setShowCode(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not safely update the imported Java.");
+    }
+  }
+
   const renderPaths = model.paths.flatMap((path) => {
     let start = path.startPoint;
     return path.lineIds.flatMap((lineId) => {
@@ -876,7 +925,7 @@ export function RichVisualizer() {
         <button onClick={() => fileRef.current?.click()}>Import</button>
         <button onClick={() => download(`${javaName(model.java.className, "Auto")}.ftcauto.json`, JSON.stringify(richSpec(model), null, 2))}>Export spec</button>
         <button onClick={() => download(`${javaName(model.java.className, "Auto")}.pp`, JSON.stringify(toVisualizer(model), null, 2))}>Export .pp</button>
-        <button className={styles.codeButton} onClick={() => setShowCode(true)}>Generate Java</button>
+        <button className={styles.codeButton} onClick={openGeneratedJava}>{sourceExport ? "Update Java safely" : "Generate Java"}</button>
       </div>
     </header>
 
@@ -958,7 +1007,7 @@ export function RichVisualizer() {
 
     <footer className={styles.footer}><span>Localhost only · works offline · autosaves in this browser · no LLM required</span><a href="https://github.com/Pedro-Pathing/Visualizer" target="_blank" rel="noreferrer">Compatible with Pedro Visualizer .pp ↗</a></footer>
 
-    {showCode && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Generated Java state machine"><div className={styles.codeModal}><header><div><span>GENERATED JAVA</span><b>{model.java.className}.java</b></div><button onClick={() => setShowCode(false)}>×</button></header><div className={styles.codeNotice}><span>✓</span><p>Paths and state transitions are complete. Robot-specific action calls are preserved exactly; keep the matching subsystem fields and action methods when integrating this class.</p></div><textarea readOnly value={java} spellCheck={false} /><div className={styles.modalActions}><button onClick={async () => { await navigator.clipboard.writeText(java); setNotice("Java copied to clipboard"); }}>Copy Java</button><button className={styles.codeButton} onClick={() => download(`${javaName(model.java.className, "GeneratedAuto")}.java`, java, "text/x-java-source")}>Download .java</button></div></div></div>}
+    {showCode && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Generated Java state machine"><div className={styles.codeModal}><header><div><span>{sourceExport ? "SOURCE-PRESERVING JAVA" : "GENERATED JAVA"}</span><b>{model.java.className}.java</b></div><button onClick={() => setShowCode(false)}>×</button></header><div className={styles.codeNotice}><span>✓</span><p>{generationNote}</p></div><textarea readOnly value={generatedJava} spellCheck={false} /><div className={styles.modalActions}><button onClick={async () => { await navigator.clipboard.writeText(generatedJava); setNotice("Java copied to clipboard"); }}>Copy Java</button><button className={styles.codeButton} onClick={() => download(`${javaName(model.java.className, "GeneratedAuto")}.java`, generatedJava, "text/x-java-source")}>Download .java</button></div></div></div>}
   </main>;
 }
 

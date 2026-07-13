@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { extractAutonomous } from "../dist/autonomous.js";
+import { extractAutonomous, generatePreservedJava } from "../dist/autonomous.js";
 
 const java = `
 package org.firstinspires.ftc.teamcode;
 @Autonomous(name = "Decode Auto", group = "Auto")
 public class DecodeAuto extends OpMode {
   public static long SETTLE_MS = 250;
+  private final Object importantRobotLogic = new Object();
   void initPaths() {
     follower.setStartingPose(new Pose(144 - 120, 120, Math.toRadians(180)));
     Score = follower.pathBuilder().addPath(
@@ -30,6 +31,7 @@ public class DecodeAuto extends OpMode {
         break;
     }
   }
+  void handleOuttakeRoutine() { importantRobotLogic.toString(); }
 }`;
 
 const imported = extractAutonomous(java, "DecodeAuto.java");
@@ -46,5 +48,24 @@ assert.ok(imported.spec.steps.some((step) => step.type === "action" && step.acti
 assert.ok(!imported.spec.steps.some((step) => step.type === "action" && step.action === "if"));
 assert.ok(imported.spec.steps.some((step) => step.type === "wait" && step.durationMs === 250));
 assert.ok(imported.visualizer.sequence.some((step) => step.kind === "wait" && step.durationMs === 250));
+
+const editedSpec = structuredClone(imported.spec);
+editedSpec.startPose = { x: 25, y: 119, headingDegrees: 175 };
+editedSpec.paths[0].startPoint = { x: 25, y: 119 };
+editedSpec.visualizer.lines[0].endPoint.x = 61;
+const preserved = generatePreservedJava(java, editedSpec, "DecodeAuto.java");
+assert.match(preserved.java, /private final Object importantRobotLogic = new Object\(\);/);
+assert.match(preserved.java, /void handleOuttakeRoutine\(\) \{ importantRobotLogic\.toString\(\); \}/);
+assert.match(preserved.java, /follower\.setStartingPose\(new Pose\(25, 119, Math\.toRadians\(175\)\)\)/);
+assert.match(preserved.java, /new Pose\(61, 80\)/);
+assert.match(preserved.java, /follower\.followPath\(paths\.Score\);/);
+assert.doesNotMatch(preserved.java, /Initialize the robot subsystems referenced/);
+
+const changedTimeline = structuredClone(editedSpec);
+changedTimeline.steps.push({ type: "action", action: "newAction" });
+assert.throws(
+  () => generatePreservedJava(java, changedTimeline, "DecodeAuto.java"),
+  /will not flatten or overwrite custom robot logic/
+);
 
 console.log("auto importer test passed");

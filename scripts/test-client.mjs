@@ -66,7 +66,7 @@ await client.connect(transport);
 
 try {
   const tools = await client.listTools();
-  check(`lists 37 tools (got ${tools.tools.length})`, tools.tools.length === 37);
+  check(`lists 38 tools (got ${tools.tools.length})`, tools.tools.length === 38);
 
   let r = await call(client, "deploy_robot", { connection: "usb", projectPath: fakeProject, dryRun: true });
   check("deploy_robot previews direct USB deployment", !r.isError && r.text.includes("USB deployment preview") && r.text.includes("adb_devices"), r.text);

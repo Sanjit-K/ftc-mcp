@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InstallSection } from "./install-section";
 
 const assetPrefix = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -53,6 +54,8 @@ export default function Home() {
         </div>
       </section>
 
+      <InstallSection />
+
       <section className="problem shell">
         <p className="sectionKicker">THE GAP</p>
         <h2>Chat is useful.<br /><span>Shipping robot code is better.</span></h2>
@@ -75,8 +78,6 @@ export default function Home() {
         <div className="stats"><div><strong>8<span>/8</span></strong><p>subsystems reproduced</p></div><div><strong>76<span>/76</span></strong><p>public methods matched</p></div><div><strong>01</strong><p>real, installable APK</p></div></div>
         <div className="diffCard"><div className="diffHead"><span>Controls.java</span><small>GENERATED · HUMAN-EDITABLE</small></div><pre><span className="comment">// Driver bindings stay out of robot logic</span>{`\n`}<span className="purple">public void</span> <span className="blue">bind</span>(GamepadEx driver) {`{`}{`\n`}  driver.<span className="blue">getGamepadButton</span>(A){`\n`}    .<span className="blue">whenPressed</span>(intake::<span className="blue">spinIn</span>){`\n`}    .<span className="blue">whenReleased</span>(intake::<span className="blue">stop</span>);{`\n`}{`}`}</pre></div>
       </section>
-
-      <section className="install" id="install"><div className="shell installInner"><div><p className="sectionKicker">START BUILDING</p><h2>Two commands.<br />That’s the setup.</h2><p>Works inside an existing FtcRobotController project. Node 18+ required.</p></div><div className="installCard"><div className="tabs"><b>Codex</b><span>Claude Code</span><span>Other MCP clients</span></div><div className="command"><span>$</span><code>codex mcp add ftc-toolchain -- npx -y ftc-toolchain</code></div><div className="command"><span>$</span><code>npx ftc-toolchain setup</code></div><div className="requirements"><span>Requires</span><b>Node 18+</b><b>Android Studio</b><b>adb for deploy</b></div></div></div></section>
 
       <section className="safety shell"><div className="shield">✓</div><div><p className="sectionKicker">YOU’RE IN CONTROL</p><h2>Review the diff.<br />Then run the robot.</h2></div><p>FTC Toolchain proposes and runs local tools. It won’t overwrite existing files by default, and nothing deploys to your Control Hub unless you ask.</p></section>
 

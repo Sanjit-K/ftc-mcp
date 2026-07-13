@@ -29,39 +29,37 @@ Optional later: `/blog` (build logs, release notes), `/showcase` (teams using it
 - **Hero visual:** a short looping terminal/asciinema clip: a person types *"make an intake subsystem with one motor, spinIn and spinOut, plus a bench test"* and files appear + a green `BUILD SUCCESSFUL`. Motion sells this better than a screenshot.
 - Trust line under the CTA: "Works with the official FtcRobotController SDK and Pedro Pathing. Free & open source (MIT)."
 
-### 2. The problem (short, relatable)
+### 2. Start building (interactive setup)
+- Put setup immediately below the hero so visitors can act before reading the full pitch.
+- Let visitors choose **Codex** / **Claude Code** / **Other MCP client** and **macOS/Linux** / **Windows**.
+- Ask for the existing FtcRobotController project root (the folder containing `TeamCode`) and generate a copyable MCP registration command or config with `FTC_TOOLCHAIN_PROJECT_DIR` set.
+- Follow with the one-time `npx -y ftc-toolchain setup` command and a verification prompt using `inspect_project`.
+- Show the complete prerequisites: Node 18+, Git, Android Studio + JDK 17, and adb for robot deployment.
+
+### 3. The problem (short, relatable)
 Three lines, FTC-specific:
 - "Every season starts with the same boilerplate: hardware maps, drive code, config names that must match the Driver Station."
 - "AI chatbots can *describe* the code — but you still copy-paste, fix imports, and chase build errors."
 - "ftc-toolchain closes the loop: the AI runs the tools, builds the code, and tells you what broke."
 
-### 3. What it does (3–4 feature cards)
+### 4. What it does (3–4 feature cards)
 Group the 20 tools into the buckets and show them as cards with an icon each:
 - **Knowledge** — "Searches the official FTC samples and Pedro Pathing docs so the AI cites real, working code — not hallucinated APIs."
 - **Subsystems & TeleOp** — "Scaffolds one clean class per mechanism, injects dependencies, and generates a TeleOp with a *separate, human-editable bindings file* your drivers can remap."
 - **Build & Deploy** — "Runs Gradle, extracts the actual compiler errors, installs the APK over WiFi, and reads logcat back."
 - **Robot knowledge base** — "Keeps a living `docs/` describing every subsystem — so next session the AI already knows your robot."
 
-### 4. How it works (the loop)
+### 5. How it works (the loop)
 A simple 4-step horizontal diagram:
 `Describe → Scaffold → Build → Deploy` with one line each. Reinforce that the AI drives
 the tools; the student stays in control and reviews the diffs.
 
-### 5. Live example / proof (the strongest section)
+### 6. Live example / proof (the strongest section)
 Use the **reconstruction case study** — it's the credibility anchor:
 - "We took a real competition robot (8 subsystems, dual TeleOps, a color-sorting spindexer with custom PID), turned it into a plain-English prompt, and rebuilt it through ftc-toolchain into an empty folder."
 - Result stat tiles: **8/8 subsystems reproduced · 76/76 public methods · compiles to a real APK.**
 - A before/after: original inline controls vs the generated separate `Controls.java`.
 - Keep it honest: note the AI writes the logic; the tools guarantee the structure, wiring, and that it builds.
-
-### 6. Install (make it copy-paste obvious)
-Two commands, big monospace block with a copy button:
-```
-codex mcp add ftc-toolchain -- npx -y ftc-toolchain
-npx ftc-toolchain setup
-```
-Tabs for **Codex** / **Claude Code** / **Other MCP clients**. Requirements line:
-Node 18+, Android Studio (for building), adb (for deploying).
 
 ### 7. Safety / "who's in control"
 Reassure mentors: "The AI proposes and runs tools; you approve and review every change in

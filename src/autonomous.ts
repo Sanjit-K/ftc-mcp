@@ -375,9 +375,15 @@ export function extractAutonomous(source: string, sourceName = "Auto.java"): Ext
     java: { packageName, className, group },
     source: { file: sourceName, importer: "ftc-toolchain", extraction: "conservative" },
     startPose,
-    paths: paths.map((path) => ({ id: path.id, name: path.name, lineIds: path.lines.map((line) => line.id) })),
+    paths: paths.map((path) => ({
+      id: path.id,
+      name: path.name,
+      lineIds: path.lines.map((line) => line.id),
+      startPoint: path.starts[0] ?? startPose,
+    })),
     actions,
     steps,
+    visualizer,
     extractionWarnings: warnings,
   };
   return { spec, visualizer, className, warnings, pathCount: paths.length, stepCount: steps.length, actionCount: actions.length };

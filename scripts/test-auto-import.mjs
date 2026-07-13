@@ -38,6 +38,8 @@ assert.equal(imported.pathCount, 2);
 assert.equal(imported.actionCount, 1);
 assert.equal(imported.visualizer.lines.length, 2);
 assert.equal(imported.visualizer.pathChains.length, 2);
+assert.equal(imported.spec.visualizer, imported.visualizer);
+assert.deepEqual(imported.spec.paths[0].startPoint, { x: 24, y: 120 });
 assert.deepEqual(imported.visualizer.startPoint, { x: 24, y: 120, heading: "constant", degrees: 180 });
 assert.deepEqual(imported.visualizer.lines[0].endPoint, { x: 60, y: 80, heading: "linear", startDeg: 180, endDeg: 90 });
 assert.ok(imported.spec.steps.some((step) => step.type === "action" && step.action === "spinIntake"));

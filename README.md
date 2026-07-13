@@ -126,6 +126,9 @@ Start a new session with `inspect_project`. It reports which FTC project is sele
 | `restore_backup` | Preview or restore selected backup files; confirmed restores back up current versions first |
 | `create_opmode` | Scaffold an OpMode: `linear-teleop`, `mecanum-teleop`, `linear-auto`, `pedro-auto`, `pedro-teleop` |
 | `install_pedro` | Add Pedro Pathing to a project (Gradle deps, compileSdk 34, `Constants.java` scaffold) |
+| `refactor_auto_for_visualizer` | Import an existing Pedro Java auto into an editable `.ftcauto.json` timeline plus a `.pp` file that opens in Pedro Visualizer; paths, waits, and robot actions are extracted conservatively |
+
+For an existing autonomous, run `refactor_auto_for_visualizer` with its Java path. The generated `.pp` contains the geometry and waits supported by today's Pedro Visualizer. The matching `.ftcauto.json` preserves the complete path/action timeline—such as `spinIntake`, shoot, transfer, and other robot-specific routines—for human review and future code generation. Any expression or transition the importer cannot prove is listed as a review warning instead of being silently changed.
 
 **Subsystems** — the recommended way to structure robot code: one plain class per mechanism, with a living markdown knowledge base the LLM reads and updates.
 

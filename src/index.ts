@@ -37,8 +37,9 @@ import { inspectProject } from "./diagnostics.js";
 import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
 import { runWifiDeployWorker, startWifiDeploy, wifiDeployStatus } from "./network.js";
+import { refactorAutoForVisualizer } from "./autonomous.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 // CLI subcommands (run before starting the server).
 const cliArg = process.argv[2];
@@ -345,6 +346,25 @@ server.registerTool(
   guard(async ({ projectPath, version }: { projectPath?: string; version?: string }) =>
     installPedro(projectPath, version)
   )
+);
+
+server.registerTool(
+  "refactor_auto_for_visualizer",
+  {
+    title: "Refactor an existing autonomous for visual editing",
+    description:
+      "Import an existing Pedro Pathing Java autonomous. Extracts BezierLine/BezierCurve path chains, waits, and a conservative state/action timeline; " +
+      "writes a .pp file that Pedro Visualizer can open plus an .ftcauto.json source-of-truth that preserves robot actions for agent and human editing. " +
+      "Ambiguous Java is reported for review instead of silently guessed.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      sourceFile: z.string().describe("Java file relative to the FTC project, e.g. TeamCode/src/main/java/org/firstinspires/ftc/teamcode/BlueAuto.java"),
+      outputDir: z.string().optional().describe("Output directory relative to the project (default: autos)"),
+      overwrite: z.boolean().optional().describe("Replace existing imported files after backing them up"),
+      dryRun: z.boolean().optional().describe("Extract and preview both files without writing"),
+    },
+  },
+  guard(async (args: Parameters<typeof refactorAutoForVisualizer>[0]) => refactorAutoForVisualizer(args))
 );
 
 // ---------- Subsystems (robot architecture layer) ----------

@@ -9,6 +9,7 @@
   "main": "dist/index.js",
   "files": [
     "dist",
+    "studio-dist",
     "README.md",
     "LICENSE"
   ],
@@ -20,8 +21,9 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "setup": "node dist/index.js setup",
-    "test": "npm run build && node scripts/test-client.mjs && node scripts/test-auto-import.mjs",
-    "prepublishOnly": "npm run build"
+    "test": "npm run build && node scripts/test-client.mjs && node scripts/test-auto-import.mjs && node scripts/test-studio.mjs",
+    "studio:build": "npm --prefix website run studio:build && node scripts/copy-studio-build.mjs",
+    "prepublishOnly": "npm run build && npm run studio:build"
   },
   "keywords": [
     "ftc-toolchain",

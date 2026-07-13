@@ -31,7 +31,7 @@ export default function Home() {
     <main>
       <nav className="nav shell">
         <Link href="/" className="brand" aria-label="FTC Toolchain home"><img className="brandMark" src={`${assetPrefix}/logo.svg`} alt="" /><span>FTC Toolchain</span></Link>
-        <div className="navLinks"><a href="#features">Features</a><Link href="/visualizer">Auto Studio</Link><Link href="/docs">Docs</Link></div>
+        <div className="navLinks"><a href="#features">Features</a><Link href="/docs#autonomous-studio">Local Auto Studio</Link><Link href="/docs">Docs</Link></div>
         <a className="navGit" href="https://github.com/Sanjit-K/ftc-toolchain" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
       </nav>
 
@@ -63,7 +63,7 @@ export default function Home() {
       </section>
 
       <section className="features shell" id="features">
-        <div className="sectionHead"><div><p className="sectionKicker">35 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
+        <div className="sectionHead"><div><p className="sectionKicker">37 TOOLS. FOUR JOBS.</p><h2>Everything between<br />the prompt and the robot.</h2></div><p>Purpose-built tools for the repetitive, fragile parts of an FTC codebase. Your AI handles the loop; your team reviews every diff.</p></div>
         <div className="featureGrid">{features.map((f) => <article className="featureCard" key={f.id}><div className="featureTop"><span>{f.id}</span><i>↗</i></div><p className="featureLabel">{f.label}</p><h3>{f.title}</h3><p>{f.body}</p><code>{f.tag}</code></article>)}</div>
       </section>
 

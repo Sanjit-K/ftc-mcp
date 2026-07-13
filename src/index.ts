@@ -38,6 +38,7 @@ import { listBackups, listGeneratedFiles, restoreBackup } from "./lifecycle.js";
 import { checkProjectHygiene } from "./hygiene.js";
 import { runWifiDeployWorker, startWifiDeploy, wifiDeployStatus } from "./network.js";
 import { refactorAutoForVisualizer } from "./autonomous.js";
+import { openAutonomousStudio } from "./studio.js";
 
 const VERSION = "0.3.0";
 
@@ -59,6 +60,17 @@ if (cliArg === "doctor") {
   console.log(await inspectProject(process.argv[3]));
   process.exit(0);
 }
+if (cliArg === "studio") {
+  const sourceArg = process.argv.find((arg) => arg.startsWith("--source="));
+  const portArg = process.argv.find((arg) => arg.startsWith("--port="));
+  console.log(await openAutonomousStudio({
+    projectPath: process.argv[3]?.startsWith("--") ? undefined : process.argv[3],
+    sourceFile: sourceArg?.slice("--source=".length),
+    port: portArg ? Number(portArg.slice("--port=".length)) : undefined,
+    openBrowser: !process.argv.includes("--no-open"),
+  }));
+  await new Promise(() => {});
+}
 if (cliArg === "--version" || cliArg === "-v") {
   console.log(VERSION);
   process.exit(0);
@@ -71,6 +83,7 @@ if (cliArg === "--help" || cliArg === "-h") {
       `  ftc-toolchain setup      Download reference material (FTC samples + Pedro docs)\n` +
       `  ftc-toolchain update     Fast-forward clean reference checkouts\n` +
       `  ftc-toolchain doctor     Check project, build, docs, and environment readiness\n` +
+      `  ftc-toolchain studio     Run Autonomous Studio on localhost\n` +
       `  ftc-toolchain --version  Print version\n\n` +
       `Add to Codex:         codex mcp add ftc-toolchain -- npx -y ftc-toolchain\n` +
       `Add to Claude Code:   claude mcp add ftc-toolchain -- npx -y ftc-toolchain\n` +
@@ -365,6 +378,23 @@ server.registerTool(
     },
   },
   guard(async (args: Parameters<typeof refactorAutoForVisualizer>[0]) => refactorAutoForVisualizer(args))
+);
+
+server.registerTool(
+  "open_autonomous_studio",
+  {
+    title: "Open the local Autonomous Studio",
+    description:
+      "Start the rich Pedro Pathing autonomous editor on 127.0.0.1. It can load an existing Java auto and automatically imports public robot commands " +
+      "from TeamCode subsystem and automation folders, organized by source. The studio is served only by this local FTC Toolchain process and is never uploaded.",
+    inputSchema: {
+      projectPath: projectPathArg,
+      sourceFile: z.string().optional().describe("Existing autonomous Java file relative to the FTC project; omit to start from scratch"),
+      port: z.number().int().min(1024).max(65535).optional().describe("Localhost port (default: 7331)"),
+      openBrowser: z.boolean().optional().describe("Open the local URL in the default browser (default: true)"),
+    },
+  },
+  guard(async (args: Parameters<typeof openAutonomousStudio>[0]) => openAutonomousStudio(args))
 );
 
 // ---------- Subsystems (robot architecture layer) ----------

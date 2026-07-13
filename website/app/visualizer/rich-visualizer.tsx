@@ -24,7 +24,16 @@ type ActionDefinition = {
   periodicCall: string;
   completionCondition: string;
   parameters: ActionParameter[];
+  javaMethod?: string;
+  source?: {
+    category: "subsystems" | "automations" | "manual";
+    group: string;
+    className: string;
+    file?: string;
+  };
 };
+type Camera = { zoom: number; focusX: number; focusY: number };
+type FieldView = { x: number; y: number; width: number; height: number; baseX: number; baseY: number; baseWidth: number; baseHeight: number };
 type Step =
   | { id: string; type: "path"; pathId: string }
   | { id: string; type: "wait"; durationMs: number; label: string }
@@ -53,6 +62,26 @@ const javaName = (value: string, fallback: string) => {
 };
 
 const samePoint = (a: XY, b: XY) => Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001;
+
+function fieldView(camera: Camera, viewport: { width: number; height: number }): FieldView {
+  const aspect = Math.max(0.1, viewport.width / Math.max(1, viewport.height));
+  const baseWidth = aspect >= 1 ? 144 * aspect : 144;
+  const baseHeight = aspect >= 1 ? 144 : 144 / aspect;
+  const baseX = (144 - baseWidth) / 2;
+  const baseY = (144 - baseHeight) / 2;
+  const width = baseWidth / camera.zoom;
+  const height = baseHeight / camera.zoom;
+  return {
+    x: baseX + (baseWidth - width) * camera.focusX,
+    y: baseY + (baseHeight - height) * camera.focusY,
+    width,
+    height,
+    baseX,
+    baseY,
+    baseWidth,
+    baseHeight,
+  };
+}
 
 function pathEnd(path: Path, lines: Line[]): XY {
   const lineMap = new Map(lines.map((line) => [line.id, line]));
@@ -135,8 +164,8 @@ const starter: AutoModel = {
     { id: "Pickup", name: "Pickup", color: "#38bdf8", lineIds: ["pickup-segment-1"], startPoint: { x: 58, y: 76 } },
   ],
   actions: [
-    { id: "spinIntake", label: "Spin intake", mode: "instant", javaCall: "barIntake.spinIntake();", periodicCall: "", completionCondition: "", parameters: [] },
-    { id: "startOuttakeRoutine", label: "Shoot stored pieces", mode: "blocking", javaCall: "startOuttakeRoutine();", periodicCall: "handleOuttakeRoutine();", completionCondition: "!outtakeInProgress", parameters: [] },
+    { id: "spinIntake", label: "Spin intake", mode: "instant", javaCall: "barIntake.spinIntake();", periodicCall: "", completionCondition: "", parameters: [], source: { category: "subsystems", group: "Intake", className: "BarIntake" } },
+    { id: "startOuttakeRoutine", label: "Shoot stored pieces", mode: "blocking", javaCall: "startOuttakeRoutine();", periodicCall: "handleOuttakeRoutine();", completionCondition: "!outtakeInProgress", parameters: [], source: { category: "automations", group: "Scoring", className: "OuttakeRoutine" } },
   ],
   steps: [
     { id: "step-score", type: "path", pathId: "Score" },
@@ -218,6 +247,13 @@ function normalizeAction(raw: any, index: number): ActionDefinition {
     javaCall: String(raw.javaCall ?? raw.invocation ?? `${raw.javaMethod ?? id}();`),
     periodicCall: String(raw.periodicCall ?? ""),
     completionCondition: String(raw.completionCondition ?? ""),
+    javaMethod: raw.javaMethod ? String(raw.javaMethod) : undefined,
+    source: raw.source ? {
+      category: ["subsystems", "automations", "manual"].includes(raw.source.category) ? raw.source.category : "manual",
+      group: String(raw.source.group ?? "General"),
+      className: String(raw.source.className ?? "Local"),
+      file: raw.source.file ? String(raw.source.file) : undefined,
+    } : { category: "manual", group: "Manual", className: "Local" },
     parameters: Array.isArray(raw.parameters)
       ? raw.parameters.map((p: any) => ({ name: String(p.name), defaultValue: String(p.defaultValue ?? p.default ?? "") }))
       : [],
@@ -504,9 +540,20 @@ export function RichVisualizer() {
   const [addPathId, setAddPathId] = useState(starter.paths[0].id);
   const [addActionId, setAddActionId] = useState(starter.actions[0].id);
   const [drag, setDrag] = useState<{ kind: "end" | "control"; pathId: string; lineId: string; index?: number } | null>(null);
-  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
-  const [pan, setPan] = useState<{ clientX: number; clientY: number; camera: { x: number; y: number; zoom: number } } | null>(null);
+  const [camera, setCamera] = useState<Camera>({ zoom: 1, focusX: 0.5, focusY: 0.5 });
+  const [pan, setPan] = useState<{ clientX: number; clientY: number; camera: Camera } | null>(null);
+  const [viewport, setViewport] = useState({ width: 900, height: 500 });
+  const [libraryCollapsed, setLibraryCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [pathsCollapsed, setPathsCollapsed] = useState(false);
+  const [actionsCollapsed, setActionsCollapsed] = useState(false);
+  const [timelineCollapsed, setTimelineCollapsed] = useState(false);
+  const [collapsedActionGroups, setCollapsedActionGroups] = useState<string[]>([]);
+  const [draggedStep, setDraggedStep] = useState<number | null>(null);
+  const [dragTargetStep, setDragTargetStep] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const fieldShellRef = useRef<HTMLDivElement>(null);
+  const dragTargetRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const issues = useMemo(() => validate(model), [model]);
   const java = useMemo(() => generateJava(model), [model]);
@@ -514,6 +561,18 @@ export function RichVisualizer() {
   const selectedLine = model.lines.find((line) => line.id === selectedLineId) ?? model.lines.find((line) => selectedPath?.lineIds.includes(line.id));
   const selectedAction = model.actions.find((action) => action.id === selectedActionId);
   const selectedTimelineStep = model.steps[selectedStep];
+  const actionGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; category: string; group: string; className: string; actions: ActionDefinition[] }>();
+    for (const action of model.actions) {
+      const source = action.source ?? { category: "manual", group: "Manual", className: "Local" };
+      const key = `${source.category}/${source.group}/${source.className}`;
+      const existing = groups.get(key) ?? { key, category: source.category, group: source.group, className: source.className, actions: [] };
+      existing.actions.push(action);
+      groups.set(key, existing);
+    }
+    return [...groups.values()];
+  }, [model.actions]);
+  const view = useMemo(() => fieldView(camera, viewport), [camera, viewport]);
 
   useEffect(() => {
     const saved = localStorage.getItem("ftc-toolchain-rich-auto");
@@ -536,14 +595,54 @@ export function RichVisualizer() {
   }, [model]);
 
   useEffect(() => {
+    let cancelled = false;
+    fetch("/studio-data.json", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return null;
+      return response.json();
+    }).then((local) => {
+      if (cancelled || !local) return;
+      const discovered = Array.isArray(local.actions) ? local.actions.map(normalizeAction) : [];
+      if (local.spec) {
+        const imported = modelFromFiles({ ...local.spec, actions: discovered }, null);
+        setModel(imported);
+        setSelectedPathId(imported.paths[0]?.id ?? "");
+        setSelectedLineId(imported.paths[0]?.lineIds[0] ?? "");
+        setAddPathId(imported.paths[0]?.id ?? "");
+      } else {
+        const actionIds = new Set(discovered.map((action: ActionDefinition) => action.id));
+        setModel((current) => ({
+          ...current,
+          actions: discovered,
+          steps: current.steps.filter((step) => step.type !== "action" || actionIds.has(step.actionId)),
+        }));
+      }
+      setAddActionId(discovered[0]?.id ?? "");
+      setNotice(`${discovered.length} robot actions imported from local code`);
+    }).catch(() => { /* The public/static page has no local project bridge. */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const element = fieldShellRef.current;
+    if (!element) return;
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      setViewport({ width: Math.max(1, rect.width), height: Math.max(1, rect.height) });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [libraryCollapsed, inspectorCollapsed, timelineCollapsed]);
+
+  useEffect(() => {
     if (!drag) return;
     const move = (event: PointerEvent) => {
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const viewSize = 144 / camera.zoom;
       const point = {
-        x: clamp(camera.x + ((event.clientX - rect.left) / rect.width) * viewSize),
-        y: clamp(144 - (camera.y + ((event.clientY - rect.top) / rect.height) * viewSize)),
+        x: clamp(view.x + ((event.clientX - rect.left) / rect.width) * view.width),
+        y: clamp(144 - (view.y + ((event.clientY - rect.top) / rect.height) * view.height)),
       };
       setModel((current) => {
         const previous = current.lines.find((line) => line.id === drag.lineId);
@@ -558,19 +657,22 @@ export function RichVisualizer() {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-  }, [drag, camera]);
+  }, [drag, view]);
 
   useEffect(() => {
     if (!pan) return;
     const move = (event: PointerEvent) => {
       const rect = svgRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const viewSize = 144 / pan.camera.zoom;
-      const max = 144 - viewSize;
+      const startView = fieldView(pan.camera, { width: rect.width, height: rect.height });
+      const desiredX = startView.x - ((event.clientX - pan.clientX) / rect.width) * startView.width;
+      const desiredY = startView.y - ((event.clientY - pan.clientY) / rect.height) * startView.height;
+      const rangeX = Math.max(0.0001, startView.baseWidth - startView.width);
+      const rangeY = Math.max(0.0001, startView.baseHeight - startView.height);
       setCamera({
         zoom: pan.camera.zoom,
-        x: Math.max(0, Math.min(max, pan.camera.x - ((event.clientX - pan.clientX) / rect.width) * viewSize)),
-        y: Math.max(0, Math.min(max, pan.camera.y - ((event.clientY - pan.clientY) / rect.height) * viewSize)),
+        focusX: Math.max(0, Math.min(1, (desiredX - startView.baseX) / rangeX)),
+        focusY: Math.max(0, Math.min(1, (desiredY - startView.baseY) / rangeY)),
       });
     };
     const up = () => setPan(null);
@@ -579,17 +681,52 @@ export function RichVisualizer() {
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
   }, [pan]);
 
+  useEffect(() => {
+    if (draggedStep === null) return;
+    const move = (event: PointerEvent) => {
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-step-index]");
+      if (target?.dataset.stepIndex) {
+        const index = Number(target.dataset.stepIndex);
+        dragTargetRef.current = index;
+        setDragTargetStep(index);
+      }
+    };
+    const up = () => {
+      const target = dragTargetRef.current;
+      if (target !== null && target !== draggedStep) {
+        setModel((current) => {
+          const steps = [...current.steps];
+          const [moved] = steps.splice(draggedStep, 1);
+          steps.splice(target, 0, moved);
+          return ensureTimelineContinuity({ ...current, steps });
+        });
+        setSelectedStep(target);
+      }
+      setDraggedStep(null);
+      setDragTargetStep(null);
+      dragTargetRef.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  }, [draggedStep]);
+
   function zoomTo(nextZoom: number, focusX = 0.5, focusY = 0.5) {
     setCamera((current) => {
       const zoom = Math.max(1, Math.min(4, nextZoom));
-      const oldSize = 144 / current.zoom;
-      const newSize = 144 / zoom;
-      const focusFieldX = current.x + focusX * oldSize;
-      const focusFieldY = current.y + focusY * oldSize;
+      const currentView = fieldView(current, viewport);
+      const focusFieldX = currentView.x + focusX * currentView.width;
+      const focusFieldY = currentView.y + focusY * currentView.height;
+      const nextWidth = currentView.baseWidth / zoom;
+      const nextHeight = currentView.baseHeight / zoom;
+      const desiredX = focusFieldX - focusX * nextWidth;
+      const desiredY = focusFieldY - focusY * nextHeight;
+      const rangeX = Math.max(0.0001, currentView.baseWidth - nextWidth);
+      const rangeY = Math.max(0.0001, currentView.baseHeight - nextHeight);
       return {
         zoom,
-        x: Math.max(0, Math.min(144 - newSize, focusFieldX - focusX * newSize)),
-        y: Math.max(0, Math.min(144 - newSize, focusFieldY - focusY * newSize)),
+        focusX: zoom === 1 ? 0.5 : Math.max(0, Math.min(1, (desiredX - currentView.baseX) / rangeX)),
+        focusY: zoom === 1 ? 0.5 : Math.max(0, Math.min(1, (desiredY - currentView.baseY) / rangeY)),
       };
     });
   }
@@ -667,7 +804,7 @@ export function RichVisualizer() {
 
   function addAction() {
     const id = `action${model.actions.length + 1}`;
-    const action: ActionDefinition = { id, label: "New robot action", mode: "instant", javaCall: `${id}();`, periodicCall: "", completionCondition: "", parameters: [] };
+    const action: ActionDefinition = { id, label: "New robot action", mode: "instant", javaCall: `${id}();`, periodicCall: "", completionCondition: "", parameters: [], source: { category: "manual", group: "Manual", className: "Local" } };
     setModel((current) => ({ ...current, actions: [...current.actions, action] }));
     setSelectedActionId(id); setAddActionId(id);
   }
@@ -730,9 +867,7 @@ export function RichVisualizer() {
     });
   });
 
-  const viewSize = 144 / camera.zoom;
-
-  return <main className={`${styles.studio} ${layout.studio}`}>
+  return <main className={`${styles.studio} ${layout.studio} ${timelineCollapsed ? layout.timelineCollapsedStudio : ""}`}>
     <header className={styles.topbar}>
       <div className={styles.identity}><Link href="/" aria-label="FTC Toolchain home">FT</Link><div><b>Autonomous Studio</b><span>FTC Toolchain × Pedro Pathing</span></div></div>
       <label className={styles.projectName}><span>PROJECT</span><input value={model.name} onChange={(e) => setModel({ ...model, name: e.target.value, java: { ...model.java, opModeName: e.target.value } })} /></label>
@@ -747,25 +882,33 @@ export function RichVisualizer() {
 
     <div className={styles.statusbar}><span className={issues.length ? styles.warnDot : styles.goodDot} />{issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"} to review` : "Valid autonomous"}<i /> <span>{notice}</span><strong>Saved locally</strong></div>
 
-    <div className={`${styles.workspace} ${layout.workspace}`}>
-      <aside className={styles.library}>
-        <section><div className={styles.panelTitle}><span>PATHS</span><button onClick={addPath}>+</button></div>
-          <div className={styles.libraryList}>{model.paths.map((path) => <button key={path.id} className={selectedPathId === path.id && !selectedActionId && selectedStep < 0 ? styles.activeItem : ""} onClick={() => { setSelectedPathId(path.id); setSelectedLineId(path.lineIds[0]); setSelectedActionId(null); setSelectedStep(-1); }}><i style={{ background: path.color }} /><span><b>{path.name}</b><small>{path.lineIds.length} segment{path.lineIds.length === 1 ? "" : "s"}</small></span><em>›</em></button>)}</div>
+    <div className={`${styles.workspace} ${layout.workspace} ${libraryCollapsed ? layout.libraryCollapsedWorkspace : ""} ${inspectorCollapsed ? layout.inspectorCollapsedWorkspace : ""}`}>
+      <aside className={`${styles.library} ${layout.library} ${libraryCollapsed ? layout.sideCollapsed : ""}`}>
+        <div className={layout.sideTitle}><span>{libraryCollapsed ? "LIB" : "LIBRARY"}</span><button onClick={() => setLibraryCollapsed((value) => !value)} aria-label={libraryCollapsed ? "Expand library" : "Collapse library"}>{libraryCollapsed ? "›" : "‹"}</button></div>
+        {!libraryCollapsed && <>
+        <section><div className={styles.panelTitle}><button className={layout.sectionToggle} onClick={() => setPathsCollapsed((value) => !value)}><span>{pathsCollapsed ? "▸" : "▾"} PATHS</span></button><button onClick={addPath}>+</button></div>
+          {!pathsCollapsed && <div className={styles.libraryList}>{model.paths.map((path) => <button key={path.id} className={selectedPathId === path.id && !selectedActionId && selectedStep < 0 ? styles.activeItem : ""} onClick={() => { setSelectedPathId(path.id); setSelectedLineId(path.lineIds[0]); setSelectedActionId(null); setSelectedStep(-1); }}><i style={{ background: path.color }} /><span><b>{path.name}</b><small>{path.lineIds.length} segment{path.lineIds.length === 1 ? "" : "s"}</small></span><em>›</em></button>)}</div>}
         </section>
-        <section><div className={styles.panelTitle}><span>ROBOT ACTIONS</span><button onClick={addAction}>+</button></div>
-          <p className={styles.libraryHint}>Your robot’s commands. Edit the Java once; reuse them anywhere.</p>
-          <div className={styles.libraryList}>{model.actions.map((action) => <button key={action.id} className={selectedActionId === action.id ? styles.activeItem : ""} onClick={() => { setSelectedActionId(action.id); setSelectedStep(-1); }}><i className={action.mode === "blocking" ? styles.blockingIcon : styles.actionIcon}>{action.mode === "blocking" ? "↻" : "⚡"}</i><span><b>{action.label}</b><small>{action.mode}</small></span><em>›</em></button>)}</div>
+        <section><div className={styles.panelTitle}><button className={layout.sectionToggle} onClick={() => setActionsCollapsed((value) => !value)}><span>{actionsCollapsed ? "▸" : "▾"} ROBOT ACTIONS</span></button><button onClick={addAction} aria-label="Add manual action">+</button></div>
+          {!actionsCollapsed && <><p className={styles.libraryHint}>Imported from local <code>subsystems/</code> and <code>automations/</code> code.</p>
+          <div className={layout.actionTree}>{actionGroups.map((group) => {
+            const collapsed = collapsedActionGroups.includes(group.key);
+            return <div key={group.key} className={layout.actionGroup}><button className={layout.folderRow} onClick={() => setCollapsedActionGroups((current) => current.includes(group.key) ? current.filter((key) => key !== group.key) : [...current, group.key])}><span>{collapsed ? "▸" : "▾"} {group.category === "subsystems" ? "SUBSYSTEM" : group.category === "automations" ? "AUTOMATION" : "MANUAL"}</span><b>{group.group} / {group.className}</b><small>{group.actions.length}</small></button>
+              {!collapsed && <div className={styles.libraryList}>{group.actions.map((action) => <button key={action.id} className={selectedActionId === action.id ? styles.activeItem : ""} onClick={() => { setSelectedActionId(action.id); setSelectedStep(-1); }}><i className={action.mode === "blocking" ? styles.blockingIcon : styles.actionIcon}>{action.mode === "blocking" ? "↻" : "⚡"}</i><span><b>{action.label}</b><small>{action.mode}</small></span><em>›</em></button>)}</div>}
+            </div>;
+          })}</div></>}
         </section>
+        </>}
       </aside>
 
       <section className={`${styles.fieldArea} ${layout.fieldArea}`}>
-        <div className={styles.fieldHeader}><div><span>FIELD VIEW</span><b>144 × 144 in</b></div><p>Drag points · wheel to zoom · drag the field to pan · starts stay connected</p></div>
-        <div className={`${styles.fieldShell} ${layout.fieldShell}`}>
+        <div className={styles.fieldHeader}><div><span>FIELD VIEW</span><b>144 × 144 in field · rectangular viewport</b></div><p>Wheel to zoom · drag anywhere empty to pan · starts stay connected</p></div>
+        <div ref={fieldShellRef} className={`${styles.fieldShell} ${layout.fieldShell}`}>
           <div className={styles.fieldLabels}><span>BLUE</span><span>AUDIENCE</span><span>RED</span></div>
-          <div className={layout.cameraControls}><button onClick={() => zoomTo(camera.zoom / 1.25)} aria-label="Zoom out">−</button><span>{Math.round(camera.zoom * 100)}%</span><button onClick={() => zoomTo(camera.zoom * 1.25)} aria-label="Zoom in">+</button><button onClick={() => setCamera({ x: 0, y: 0, zoom: 1 })}>Fit</button></div>
-          <svg ref={svgRef} className={`${styles.field} ${layout.field} ${pan ? layout.panning : ""}`} viewBox={`${camera.x} ${camera.y} ${viewSize} ${viewSize}`} onWheel={wheelField} role="img" aria-label="Interactive FTC autonomous field path editor">
+          <div className={layout.cameraControls}><button onClick={() => zoomTo(camera.zoom / 1.25)} aria-label="Zoom out">−</button><span>{Math.round(camera.zoom * 100)}%</span><button onClick={() => zoomTo(camera.zoom * 1.25)} aria-label="Zoom in">+</button><button onClick={() => setCamera({ zoom: 1, focusX: 0.5, focusY: 0.5 })}>Fit</button></div>
+          <svg ref={svgRef} className={`${styles.field} ${layout.field} ${pan ? layout.panning : ""}`} viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`} onWheel={wheelField} role="img" aria-label="Interactive FTC autonomous field path editor">
             <defs><pattern id="minor-grid" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M 12 0 L 0 0 0 12" fill="none" stroke="rgba(255,255,255,.06)" strokeWidth=".35" /></pattern><pattern id="major-grid" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="url(#minor-grid)" /><path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,.1)" strokeWidth=".45" /></pattern></defs>
-            <rect width="144" height="144" fill="#12181d" onPointerDown={startPan} className={layout.panSurface} /><rect width="144" height="144" fill="url(#major-grid)" pointerEvents="none" /><rect x="1" y="1" width="142" height="142" fill="none" stroke="rgba(255,255,255,.18)" strokeWidth=".7" pointerEvents="none" />
+            <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="#0a0e10" onPointerDown={startPan} className={layout.panSurface} /><rect width="144" height="144" fill="#12181d" pointerEvents="none" /><rect width="144" height="144" fill="url(#major-grid)" pointerEvents="none" /><rect x="1" y="1" width="142" height="142" fill="none" stroke="rgba(255,255,255,.24)" strokeWidth=".7" pointerEvents="none" />
             <g transform="translate(0 144) scale(1 -1)">
               <path d="M 0 72 H 144 M 72 0 V 144" stroke="rgba(255,255,255,.13)" strokeWidth=".5" strokeDasharray="2 2" />
               {renderPaths.map(({ path, line, start }) => <g key={line.id} onPointerDown={() => { setSelectedPathId(path.id); setSelectedLineId(line.id); setSelectedActionId(null); setSelectedStep(-1); }}>
@@ -785,33 +928,35 @@ export function RichVisualizer() {
         </div>
       </section>
 
-      <aside className={`${styles.inspector} ${layout.inspector}`}>
-        <div className={styles.inspectorTitle}><span>INSPECTOR</span><small>{selectedAction ? "ACTION" : selectedTimelineStep ? "TIMELINE STEP" : "PATH"}</small></div>
+      <aside className={`${styles.inspector} ${layout.inspector} ${inspectorCollapsed ? layout.sideCollapsed : ""}`}>
+        <div className={`${styles.inspectorTitle} ${layout.inspectorTitle}`}><span>{inspectorCollapsed ? "EDIT" : "INSPECTOR"}</span>{!inspectorCollapsed && <small>{selectedAction ? "ACTION" : selectedTimelineStep ? "TIMELINE STEP" : "PATH"}</small>}<button onClick={() => setInspectorCollapsed((value) => !value)} aria-label={inspectorCollapsed ? "Expand inspector" : "Collapse inspector"}>{inspectorCollapsed ? "‹" : "›"}</button></div>
+        {!inspectorCollapsed && <>
         {selectedAction ? <ActionEditor action={selectedAction} update={updateAction} remove={removeSelectedAction} /> : selectedTimelineStep ? <StepEditor step={selectedTimelineStep} paths={model.paths} actions={model.actions} update={updateStep} /> : selectedPath && selectedLine ? <PathEditor path={selectedPath} line={selectedLine} updatePath={updatePath} updateLine={updateLine} addSegment={addSegment} removePath={removeSelectedPath} selectLine={setSelectedLineId} /> : <p className={styles.empty}>Select a path, action, or timeline step.</p>}
         <div className={styles.javaSettings}><span>ROBOT START POSE</span><div className={styles.twoFields}><label>X<input type="number" value={model.startPose.x} onChange={(e) => updateStartPose({ x: number(e.target.value) })} /></label><label>Y<input type="number" value={model.startPose.y} onChange={(e) => updateStartPose({ y: number(e.target.value) })} /></label></div><label>Heading degrees<input type="number" value={model.startPose.headingDegrees} onChange={(e) => updateStartPose({ headingDegrees: number(e.target.value) })} /></label></div>
         <div className={styles.javaSettings}><span>JAVA TARGET</span><label>Package<input value={model.java.packageName} onChange={(e) => setModel({ ...model, java: { ...model.java, packageName: e.target.value } })} /></label><div className={styles.twoFields}><label>Class<input value={model.java.className} onChange={(e) => setModel({ ...model, java: { ...model.java, className: e.target.value } })} /></label><label>Group<input value={model.java.group} onChange={(e) => setModel({ ...model, java: { ...model.java, group: e.target.value } })} /></label></div></div>
         {issues.length > 0 && <div className={styles.issues}><span>REVIEW BEFORE EXPORT</span>{issues.map((issue) => <p key={issue}>! {issue}</p>)}</div>}
+        </>}
       </aside>
     </div>
 
-    <section className={`${styles.timeline} ${layout.timeline}`}>
-      <div className={styles.timelineTop}><div><span>AUTONOMOUS TIMELINE</span><b>{model.steps.length} steps</b></div><div className={styles.adders}>
+    <section className={`${styles.timeline} ${layout.timeline} ${timelineCollapsed ? layout.timelineCollapsed : ""}`}>
+      <div className={styles.timelineTop}><div><button className={layout.timelineToggle} onClick={() => setTimelineCollapsed((value) => !value)} aria-label={timelineCollapsed ? "Expand timeline" : "Collapse timeline"}>{timelineCollapsed ? "▴" : "▾"}</button><span>AUTONOMOUS TIMELINE</span><b>{model.steps.length} steps · drag cards to reorder</b></div>{!timelineCollapsed && <div className={styles.adders}>
         <select value={addPathId} onChange={(e) => setAddPathId(e.target.value)}>{model.paths.map((path) => <option key={path.id} value={path.id}>{path.name}</option>)}</select><button disabled={!addPathId} onClick={() => appendStep({ id: nextId("step"), type: "path", pathId: addPathId })}>+ Path</button>
         <select value={addActionId} onChange={(e) => setAddActionId(e.target.value)}>{model.actions.map((action) => <option key={action.id} value={action.id}>{action.label}</option>)}</select><button disabled={!addActionId} onClick={() => { const action = model.actions.find((candidate) => candidate.id === addActionId); appendStep({ id: nextId("step"), type: "action", actionId: addActionId, args: Object.fromEntries((action?.parameters ?? []).map((p) => [p.name, p.defaultValue])) }); }}>+ Action</button>
         <button onClick={() => appendStep({ id: nextId("step"), type: "wait", durationMs: 500, label: "Wait" })}>+ Wait</button>
-      </div></div>
-      <div className={styles.timelineRail}>{model.steps.map((step, index) => {
+      </div>}</div>
+      {!timelineCollapsed && <div className={styles.timelineRail}>{model.steps.map((step, index) => {
         const path = step.type === "path" ? model.paths.find((candidate) => candidate.id === step.pathId) : null;
         const action = step.type === "action" ? model.actions.find((candidate) => candidate.id === step.actionId) : null;
-        return <div key={step.id} role="button" tabIndex={0} aria-label={`Edit step ${index + 1}`} className={`${styles.stepCard} ${selectedStep === index && !selectedActionId ? styles.selectedStep : ""}`} onClick={() => { setSelectedStep(index); setSelectedActionId(null); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedStep(index); setSelectedActionId(null); } }}>
-          <div className={styles.stepNumber}>{String(index + 1).padStart(2, "0")}</div><i className={step.type === "path" ? styles.pathStep : step.type === "action" ? styles.actionStep : styles.waitStep}>{step.type === "path" ? "↗" : step.type === "action" ? "⚡" : "◷"}</i>
+        return <div key={step.id} data-step-index={index} role="button" tabIndex={0} aria-label={`Edit step ${index + 1}`} className={`${styles.stepCard} ${layout.draggableStep} ${draggedStep === index ? layout.draggingStep : ""} ${dragTargetStep === index && draggedStep !== index ? layout.dragTarget : ""} ${selectedStep === index && !selectedActionId ? styles.selectedStep : ""}`} onClick={() => { setSelectedStep(index); setSelectedActionId(null); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedStep(index); setSelectedActionId(null); } }}>
+          <button className={layout.dragHandle} aria-label={`Drag step ${index + 1}`} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); dragTargetRef.current = index; setDraggedStep(index); setDragTargetStep(index); }}>⋮⋮</button><div className={styles.stepNumber}>{String(index + 1).padStart(2, "0")}</div><i className={step.type === "path" ? styles.pathStep : step.type === "action" ? styles.actionStep : styles.waitStep}>{step.type === "path" ? "↗" : step.type === "action" ? "⚡" : "◷"}</i>
           <span><small>{step.type}</small><b>{path?.name ?? action?.label ?? (step.type === "wait" ? `${step.durationMs} ms` : "Missing")}</b></span>
           <div className={styles.stepTools}><button aria-label="Move step left" onClick={(e) => { e.stopPropagation(); moveStep(index, -1); }}>←</button><button aria-label="Move step right" onClick={(e) => { e.stopPropagation(); moveStep(index, 1); }}>→</button><button aria-label="Delete step" onClick={(e) => { e.stopPropagation(); setModel((current) => ensureTimelineContinuity({ ...current, steps: current.steps.filter((_, i) => i !== index) })); }}>×</button></div>
         </div>;
-      })}<div className={styles.finishCard}><i>✓</i><span><small>finish</small><b>Auto complete</b></span></div></div>
+      })}<div className={styles.finishCard}><i>✓</i><span><small>finish</small><b>Auto complete</b></span></div></div>}
     </section>
 
-    <footer className={styles.footer}><span>Works offline · autosaves in this browser · no LLM required</span><a href="https://github.com/Pedro-Pathing/Visualizer" target="_blank" rel="noreferrer">Compatible with Pedro Visualizer .pp ↗</a></footer>
+    <footer className={styles.footer}><span>Localhost only · works offline · autosaves in this browser · no LLM required</span><a href="https://github.com/Pedro-Pathing/Visualizer" target="_blank" rel="noreferrer">Compatible with Pedro Visualizer .pp ↗</a></footer>
 
     {showCode && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Generated Java state machine"><div className={styles.codeModal}><header><div><span>GENERATED JAVA</span><b>{model.java.className}.java</b></div><button onClick={() => setShowCode(false)}>×</button></header><div className={styles.codeNotice}><span>✓</span><p>Paths and state transitions are complete. Robot-specific action calls are preserved exactly; keep the matching subsystem fields and action methods when integrating this class.</p></div><textarea readOnly value={java} spellCheck={false} /><div className={styles.modalActions}><button onClick={async () => { await navigator.clipboard.writeText(java); setNotice("Java copied to clipboard"); }}>Copy Java</button><button className={styles.codeButton} onClick={() => download(`${javaName(model.java.className, "GeneratedAuto")}.java`, java, "text/x-java-source")}>Download .java</button></div></div></div>}
   </main>;
@@ -845,6 +990,7 @@ function ActionEditor({ action, update, remove }: { action: ActionDefinition; up
   return <div className={styles.formStack}>
     <Field label="Action label" value={action.label} onChange={(label) => update({ label })} />
     <div className={styles.readonlyId}><span>ACTION ID</span><code>{action.id}</code></div>
+    {action.source && <div className={styles.behavior}><span>{action.source.category.toUpperCase()} / {action.source.group}</span><p>{action.source.className}{action.source.file ? ` · ${action.source.file}` : ""}</p></div>}
     <label>Execution<select value={action.mode} onChange={(e) => update({ mode: e.target.value as ActionDefinition["mode"] })}><option value="instant">Instant — advance immediately</option><option value="blocking">Blocking — wait until complete</option></select></label>
     <label>Java call<textarea value={action.javaCall} onChange={(e) => update({ javaCall: e.target.value })} placeholder="barIntake.spinIntake();" /></label>
     {action.mode === "blocking" && <><label>Periodic call <small>optional, runs every loop</small><textarea value={action.periodicCall} onChange={(e) => update({ periodicCall: e.target.value })} placeholder="handleOuttakeRoutine();" /></label><label>Completion condition<textarea value={action.completionCondition} onChange={(e) => update({ completionCondition: e.target.value })} placeholder="!outtakeInProgress" /></label></>}

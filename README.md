@@ -127,8 +127,22 @@ Start a new session with `inspect_project`. It reports which FTC project is sele
 | `create_opmode` | Scaffold an OpMode: `linear-teleop`, `mecanum-teleop`, `linear-auto`, `pedro-auto`, `pedro-teleop` |
 | `install_pedro` | Add Pedro Pathing to a project (Gradle deps, compileSdk 34, `Constants.java` scaffold) |
 | `refactor_auto_for_visualizer` | Import an existing Pedro Java auto into an editable `.ftcauto.json` timeline plus a `.pp` file that opens in Pedro Visualizer; paths, waits, and robot actions are extracted conservatively |
+| `open_autonomous_studio` | Start the rich autonomous editor on `127.0.0.1`, optionally load an existing Java auto, and import public commands from local subsystem and automation folders |
 
 For an existing autonomous, run `refactor_auto_for_visualizer` with its Java path. The generated `.pp` contains the geometry and waits supported by today's Pedro Visualizer. The matching `.ftcauto.json` preserves the complete path/action timeline—such as `spinIntake`, shoot, transfer, and other robot-specific routines—for human review and future code generation. Any expression or transition the importer cannot prove is listed as a review warning instead of being silently changed.
+
+### Local Autonomous Studio
+
+Ask the agent to call `open_autonomous_studio`, or start it directly:
+
+```bash
+npx ftc-toolchain studio ~/FtcRobotController
+# Load an existing auto at startup:
+npx ftc-toolchain studio ~/FtcRobotController \
+  --source=TeamCode/src/main/java/org/firstinspires/ftc/teamcode/DecodeAuto.java
+```
+
+The studio binds only to `127.0.0.1` and stops with the FTC Toolchain process. It is bundled in the npm package and does not use a hosted web service. Its action library scans Java files under `subsystems/` and `automations/` (plus ftc-toolchain-generated subsystem classes), imports each public `void` method, preserves method parameters as editable action inputs, and groups commands by folder and class. Paths, actions, waits, and timeline order remain editable without an LLM.
 
 **Subsystems** — the recommended way to structure robot code: one plain class per mechanism, with a living markdown knowledge base the LLM reads and updates.
 

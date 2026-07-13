@@ -31,7 +31,8 @@ Optional later: `/blog` (build logs, release notes), `/showcase` (teams using it
 
 ### 2. Start building (interactive setup)
 - Put setup immediately below the hero so visitors can act before reading the full pitch.
-- Let visitors choose **Codex** / **Claude Code** / **Other MCP client** and **macOS/Linux** / **Windows**.
+- Let visitors choose **Use an existing project** / **Start from scratch**, **Codex** / **Claude Code** / **Other MCP client**, and **macOS/Linux** / **Windows**.
+- For a new project, generate a copyable command that clones the official FTC SDK into a `DecodeRobot` folder before registering the MCP server.
 - Ask for the existing FtcRobotController project root (the folder containing `TeamCode`) and generate a copyable MCP registration command or config with `FTC_TOOLCHAIN_PROJECT_DIR` set.
 - Follow with the one-time `npx -y ftc-toolchain setup` command and a verification prompt using `inspect_project`.
 - Show the complete prerequisites: Node 18+, Git, Android Studio + JDK 17, and adb for robot deployment.

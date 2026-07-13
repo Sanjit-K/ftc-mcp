@@ -4,6 +4,7 @@ import { useState } from "react";
 
 type ClientId = "codex" | "claude" | "other";
 type OsId = "unix" | "windows";
+type ProjectMode = "existing" | "scratch";
 
 const clients: Array<{ id: ClientId; label: string }> = [
   { id: "codex", label: "Codex" },
@@ -12,8 +13,8 @@ const clients: Array<{ id: ClientId; label: string }> = [
 ];
 
 const defaultPaths: Record<OsId, string> = {
-  unix: "/Users/team/FtcRobotController",
-  windows: "C:\\Users\\team\\FtcRobotController",
+  unix: "/Users/team/DecodeRobot",
+  windows: "C:\\Users\\team\\DecodeRobot",
 };
 
 function shellEnv(path: string): string {
@@ -47,6 +48,10 @@ function registration(client: ClientId, projectPath: string): { language: string
   };
 }
 
+function cloneCommand(projectPath: string): string {
+  return `git clone --depth 1 https://github.com/FIRST-Tech-Challenge/FtcRobotController.git "${projectPath.replaceAll('"', '\\"')}"`;
+}
+
 interface CopyBlockProps {
   id: string;
   label: string;
@@ -64,11 +69,17 @@ function CopyBlock({ id, label, language, content, copiedId, onCopy }: CopyBlock
 }
 
 export function InstallSection() {
+  const [projectMode, setProjectMode] = useState<ProjectMode>("existing");
   const [client, setClient] = useState<ClientId>("codex");
   const [os, setOs] = useState<OsId>("unix");
   const [projectPath, setProjectPath] = useState(defaultPaths.unix);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const register = registration(client, projectPath.trim() || defaultPaths[os]);
+  const resolvedPath = projectPath.trim() || defaultPaths[os];
+  const register = registration(client, resolvedPath);
+  const isScratch = projectMode === "scratch";
+  const registerStep = isScratch ? 2 : 1;
+  const setupStep = isScratch ? 3 : 2;
+  const verifyStep = isScratch ? 4 : 3;
 
   function chooseOs(nextOs: OsId) {
     setOs(nextOs);
@@ -92,15 +103,17 @@ export function InstallSection() {
     </div>
     <div className="shell setupGrid">
       <div className="setupControls">
-        <fieldset><legend>1. Choose your client</legend><div className="setupTabs" aria-label="AI client">{clients.map((item) => <button key={item.id} type="button" aria-pressed={client === item.id} className={client === item.id ? "active" : ""} onClick={() => { setClient(item.id); setCopiedId(null); }}>{item.label}</button>)}</div></fieldset>
-        <fieldset><legend>2. Choose your computer</legend><div className="osTabs" aria-label="Operating system"><button type="button" aria-pressed={os === "unix"} className={os === "unix" ? "active" : ""} onClick={() => chooseOs("unix")}>macOS / Linux</button><button type="button" aria-pressed={os === "windows"} className={os === "windows" ? "active" : ""} onClick={() => chooseOs("windows")}>Windows</button></div></fieldset>
-        <label className="pathField"><span>3. FTC project root</span><input value={projectPath} onChange={(event) => { setProjectPath(event.target.value); setCopiedId(null); }} spellCheck={false} aria-describedby="pathHint" /><small id="pathHint">Use the SDK root, not the <code>TeamCode</code> folder itself.</small></label>
+        <fieldset><legend>1. Choose how to begin</legend><div className="modeTabs" aria-label="Project starting point"><button type="button" aria-pressed={!isScratch} className={!isScratch ? "active" : ""} onClick={() => { setProjectMode("existing"); setCopiedId(null); }}>Use an existing project</button><button type="button" aria-pressed={isScratch} className={isScratch ? "active" : ""} onClick={() => { setProjectMode("scratch"); setCopiedId(null); }}>Start from scratch</button></div></fieldset>
+        <fieldset><legend>2. Choose your client</legend><div className="setupTabs" aria-label="AI client">{clients.map((item) => <button key={item.id} type="button" aria-pressed={client === item.id} className={client === item.id ? "active" : ""} onClick={() => { setClient(item.id); setCopiedId(null); }}>{item.label}</button>)}</div></fieldset>
+        <fieldset><legend>3. Choose your computer</legend><div className="osTabs" aria-label="Operating system"><button type="button" aria-pressed={os === "unix"} className={os === "unix" ? "active" : ""} onClick={() => chooseOs("unix")}>macOS / Linux</button><button type="button" aria-pressed={os === "windows"} className={os === "windows" ? "active" : ""} onClick={() => chooseOs("windows")}>Windows</button></div></fieldset>
+        <label className="pathField"><span>4. {isScratch ? "New project location" : "FTC project root"}</span><input value={projectPath} onChange={(event) => { setProjectPath(event.target.value); setCopiedId(null); }} spellCheck={false} aria-describedby="pathHint" /><small id="pathHint">{isScratch ? "Choose an empty location. FTC Toolchain will clone the official SDK here." : <>Use the SDK root, not the <code>TeamCode</code> folder itself.</>}</small></label>
         <div className="setupRequirements"><b>Before you start</b><span>Node 18+</span><span>Git</span><span>Android Studio + JDK 17</span><span>adb for robot deploys</span></div>
       </div>
       <div className="installCard">
-        <CopyBlock id="register" label={client === "other" ? "1. Add this server to your MCP config" : "1. Register FTC Toolchain"} language={register.language} content={register.content} copiedId={copiedId} onCopy={copy} />
-        <CopyBlock id="setup" label="2. Download FTC + Pedro references" language="Terminal · run once" content="npx -y ftc-toolchain setup" copiedId={copiedId} onCopy={copy} />
-        <div className="setupVerify"><span>3</span><div><b>Start a new AI session</b><p>Ask: “Run <code>inspect_project</code> before changing anything.” It should report the selected path, OpModes, Git state, Gradle, Android SDK, and hardware names.</p></div></div>
+        {isScratch && <CopyBlock id="clone" label="1. Clone the official FTC SDK" language="Terminal · run once" content={cloneCommand(resolvedPath)} copiedId={copiedId} onCopy={copy} />}
+        <CopyBlock id="register" label={client === "other" ? `${registerStep}. Add this server to your MCP config` : `${registerStep}. Register FTC Toolchain`} language={register.language} content={register.content} copiedId={copiedId} onCopy={copy} />
+        <CopyBlock id="setup" label={`${setupStep}. Download FTC + Pedro references`} language="Terminal · run once" content="npx -y ftc-toolchain setup" copiedId={copiedId} onCopy={copy} />
+        <div className="setupVerify"><span>{verifyStep}</span><div><b>Start a new AI session</b><p>Ask: “Run <code>inspect_project</code> before changing anything.” It should report the selected path, OpModes, Git state, Gradle, Android SDK, and hardware names.</p></div></div>
       </div>
     </div>
   </section>;

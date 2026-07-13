@@ -43,7 +43,7 @@ export default function Home() {
         <p className="trust"><span>✓</span> Official FTC SDK <span>✓</span> Pedro Pathing <span>✓</span> Free &amp; open source</p>
 
         <div className="terminal" aria-label="Example ftc-toolchain terminal session">
-          <div className="terminalBar"><div className="lights"><i /><i /><i /></div><span>codex — ~/CenterstageRobot</span><span className="terminalMeta">MCP CONNECTED</span></div>
+          <div className="terminalBar"><div className="lights"><i /><i /><i /></div><span>codex — ~/DecodeRobot</span><span className="terminalMeta">MCP CONNECTED</span></div>
           <div className="terminalBody">
             <div className="line user"><span>›</span><p>Make an intake subsystem with one motor, <code>spinIn</code> and <code>spinOut</code>, plus a bench test.</p></div>
             <div className="line dim"><span>●</span><p>I’ll scaffold the subsystem, wire its hardware config, then run a build.</p></div>
